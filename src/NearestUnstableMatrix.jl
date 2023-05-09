@@ -25,23 +25,15 @@ function constrained_optimal_value(A, v, w=Nothing, P=(A.!=0))
 end
 
 function constrained_minimizer(A, v, w=Nothing, P= (A.!=0))
-    n = size(A, 1)
     m = sqrt.(sum(abs2.(v' .* P), dims=2))
-    
     if w==Nothing
         a = v ./ m
         b = (A*v) ./ m
         lambda = 1im / norm(a) * imag(a'*b)
         w = v * lambda
     end
-    z = w - A*v
-    E = zeros(eltype(z), n, n)
-    pk = zeros(eltype(v), n)
-    for k = 1:n
-        pk .= conj(v);
-        pk[P[k,:].==0] .= 0;
-        E[k, :] = pk / m[k]^2 * z[k]
-    end
+    z = (w - A*v) ./ (m.^2)
+    E = z .* (v' .* P)
     return E
 end
 
