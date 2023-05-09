@@ -13,7 +13,7 @@ function constrained_optimal_value(A, v, w=Nothing, P=(A.!=0))
     pk = zeros(eltype(v), n)
     for k = 1:n
         pk .= conj(v);
-        pk[P[:,k].==0] .= 0;
+        pk[P[k,:].==0] .= 0;
         m[k] = norm(pk);
     end
     if w==Nothing
@@ -37,7 +37,7 @@ function constrained_minimizer(A, v, w=Nothing, P= (A.!=0))
     pk = zeros(eltype(v), n)
     for k = 1:n
         pk .= conj(v);
-        pk[P[:,k].==0] .= 0;
+        pk[P[k,:].==0] .= 0;
         m[k] = norm(pk);
     end
 
@@ -51,7 +51,7 @@ function constrained_minimizer(A, v, w=Nothing, P= (A.!=0))
     E = zeros(eltype(z), n, n)
     for k = 1:n
         pk .= conj(v);
-        pk[P[:,k].==0] .= 0;
+        pk[P[k,:].==0] .= 0;
         E[k, :] = pk / m[k]^2 * z[k]
     end
     return E

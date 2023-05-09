@@ -2,6 +2,7 @@ using NearestUnstableMatrix
 using Test
 using Random
 using LinearAlgebra
+using SparseArrays
 
 @testset "NearestUnstableMatrix.jl" begin
     A = [1. 2; 3 4]
@@ -30,6 +31,15 @@ using LinearAlgebra
     @test abs(real(lambda)) < sqrt(eps(1.))
     @test abs(maximum(real(eigvals(A+E)))) < sqrt(eps(1.))
     @test constrained_optimal_value(A, v) ≈ norm(E)^2
+
+    Random.seed!(0)
+    n = 4
+    A = sprandn(ComplexF64, n,n, 0.5)
+    v = normalize(rand(ComplexF64, n))
+    w = rand(ComplexF64, n)
+    E = constrained_minimizer(A, v, w)
+    @test (E.==0) == (A.==0)
+    @test (A+E)*v ≈ w
 
 end
 
