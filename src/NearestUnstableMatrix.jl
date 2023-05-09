@@ -6,33 +6,29 @@ using ForwardDiff
 export constrained_minimizer, constrained_optimal_value, complexgradient
 
 function constrained_optimal_value(A, v, w=Nothing, P=(A.!=0))
-    @assert norm(v) ≈ 1
-    n = size(A, 1)
+    # @assert norm(v) ≈ 1 # removed since this will go in a tight loop
     Av = A*v
-    m = sqrt.(sum(abs2.(v' .* P), dims=2))
+    m2 = sum(abs2.(v' .* P), dims=2)
     if w==Nothing
-        a = v ./ m
-        b = (Av) ./ m
-        lambda = 1im / norm(a) * imag(a'*b)
+        norma = sqrt(sum(abs2.(v) ./ m2))
+        lambda = 1im / norma * imag(v' * (Av ./ m2))
         w = v * lambda
     end
     z = w - Av
-    optval = zero(eltype(v))
-    for k = 1:n
-        optval = optval + abs(z[k])^2 / m[k]^2
-    end
+    optval = sum(abs2.(z) ./ m2)
     return optval
 end
 
 function constrained_minimizer(A, v, w=Nothing, P= (A.!=0))
-    m = sqrt.(sum(abs2.(v' .* P), dims=2))
+    @assert norm(v) ≈ 1
+    Av = A*v
+    m2 = sum(abs2.(v' .* P), dims=2)
     if w==Nothing
-        a = v ./ m
-        b = (A*v) ./ m
-        lambda = 1im / norm(a) * imag(a'*b)
+        norma = sqrt(sum(abs2.(v) ./ m2))
+        lambda = 1im / norma * imag(v' * (Av ./ m2))
         w = v * lambda
     end
-    z = (w - A*v) ./ (m.^2)
+    z = (w - Av) ./ m2
     E = z .* (v' .* P)
     return E
 end
