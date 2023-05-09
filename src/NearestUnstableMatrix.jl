@@ -6,6 +6,7 @@ using ForwardDiff
 export constrained_minimizer, constrained_optimal_value, complexgradient
 
 function constrained_optimal_value(A, v, w=Nothing, P=(A.!=0))
+    @assert norm(v) ≈ 1
     n = size(A, 1)
     Av = A*v
     m = zeros(eltype(v), n)
