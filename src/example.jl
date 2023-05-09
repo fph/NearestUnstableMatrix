@@ -9,8 +9,8 @@ n = size(A,1)
 M = Sphere(n-1, ℂ)
 x0 = project(M, randn(ComplexF64, n))
 
-f(M, v) = constrained_optimal_value(A, v, zeros(ComplexF64, n)) # TODO: change back and remove zeros
-# f(M, v) = constrained_optimal_value(A, v) # nearest unstable
+f(M, v) = constrained_optimal_value(A, v, zeros(ComplexF64, n)) # nearest singular matrix
+# f(M, v) = constrained_optimal_value(A, v) # nearest non-Hurwitz stable matrix
 
 function g(M, v)
     gr = complexgradient(x -> f(M, x), v)
