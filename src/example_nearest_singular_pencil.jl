@@ -18,7 +18,7 @@ B = copy(B_exact); B[2,2] = mu; B[3,1] = mu
 M = Oblique(n, n)
 
 V = rand(M)
-points = [1.;;2;;3]
+points = [1.;; 3;; 4]
 
 V_exact = [nullspace(A+B_exact*points[1]) nullspace(A+B_exact*points[2]) nullspace(A+B_exact*points[3])]
 
@@ -26,14 +26,15 @@ V_exact = [nullspace(A+B_exact*points[1]) nullspace(A+B_exact*points[2]) nullspa
 singular_pencil_minimizer(V) = -(A*V + B*(V.*points)) / (V .* points)
 
 pinv_singular_pencil_minimizer(V) = -(A*V + B*(V.*points)) * pinv(V .* points; rtol=1e-8)
+tik_singular_pencil_minimizer(V) = -(A*V + B*(V.*points)) * V'  / (V*V' + 1e-8*I)
 
-f(V) = norm(pinv_singular_pencil_minimizer(V))^2
-g(M,V) = project(M, V, first(gradient(f, V)))
+f(V) = norm(tik_singular_pencil_minimizer(V))^2
+g(M, V) = project(M, V, first(gradient(f, V)))
 
-x0 = rand(M)
-# x0 = project(M, V_exact+1e-12*randn(n,n))
+# x0 = rand(M)
+x0 = project(M, V_exact+1e-3*randn(n,n))
 
-x = gradient_descent(M, (M,x) -> f(x), g, x0; debug=[:Iteration,(:Change, "|Δp|: %1.9f |"), (:Cost, " F(x): %1.11f | "), "\n", :Stop],)
+x = trust_regions(M, (M,x) -> f(x), g, x0; debug=[:Iteration,(:Change, "|Δp|: %1.9f |"), (:Cost, " F(x): %1.11f | "), "\n", :Stop],)
 
 E = singular_pencil_minimizer(x)
 
