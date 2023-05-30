@@ -21,6 +21,9 @@ using SparseArrays
     @test (A+E)*v ≈ w
     @test constrained_optimal_value(A, v, w) ≈ norm(E)^2
 
+    # test LHP
+
+    Random.seed!(0)
     A = Array(Tridiagonal(rand(ComplexF64,n-1), rand(ComplexF64,n), rand(ComplexF64,n-1)))
     A = A - maximum(real(eigvals(A))) * I - 0.1*I
 
@@ -31,6 +34,22 @@ using SparseArrays
     @test abs(real(lambda)) < sqrt(eps(1.))
     @test abs(maximum(real(eigvals(A+E)))) < sqrt(eps(1.))
     @test constrained_optimal_value(A, v, :LHP) ≈ norm(E)^2
+
+    # test Disc
+
+    Random.seed!(0)
+    A = Array(Tridiagonal(rand(ComplexF64,n-1), rand(ComplexF64,n), rand(ComplexF64,n-1)))
+    A = A * 0.9 /  maximum(abs.(eigvals(A)))
+
+    E = constrained_minimizer(A, v, :Disc)
+    @test (E.==0) == (A.==0)
+    lambda = v'*(A+E)*v
+    @test (A+E)*v ≈ v*lambda
+    @test abs(lambda) ≈ 1.
+    @test maximum(abs.(eigvals(A+E))) ≈ 1.
+    @test constrained_optimal_value(A, v, :Disc) ≈ norm(E)^2
+
+    # test sparse
 
     Random.seed!(0)
     n = 4

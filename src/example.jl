@@ -10,7 +10,7 @@ M = Sphere(n-1, ℂ)
 x0 = project(M, randn(ComplexF64, n))
 
 target = :0 # nearest singular matrix
-target = :LHP # nearest non-Hurwitz stable matrix
+# target = :LHP # nearest non-Hurwitz stable matrix
 
 f(M, v) = constrained_optimal_value(A, v, target) 
 

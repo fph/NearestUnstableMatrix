@@ -25,7 +25,7 @@ function constrained_optimal_value(A, v, target, P=(A.!=0))
         norma = sqrt(sum(abs2.(v) ./ m2))
         lambda0 = (v' * (Av ./ m2)) / norma
         if real(lambda0) >= 0
-            lambda0 = lambda
+            lambda = lambda0
         else
             lambda = 1im * imag(lambda0)
         end
@@ -65,7 +65,7 @@ function constrained_minimizer(A, v, target, P= (A.!=0))
         norma = sqrt(sum(abs2.(v) ./ m2))
         lambda0 = (v' * (Av ./ m2)) / norma
         if real(lambda0) >= 0
-            lambda0 = lambda
+            lambda = lambda0
         else
             lambda = 1im * imag(lambda0)
         end
