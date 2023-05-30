@@ -8,21 +8,44 @@ export constrained_minimizer, constrained_optimal_value, complexgradient,
         complexgradient_zygote
 
 """
-    `optval = constrained_optimal_value(A, v, w=Nothing, P=(A.!=0))`
+    `optval = constrained_optimal_value(A, v, target, P=(A.!=0))`
 
 Computes optval = min ||E||^2 s.t. (A+E)v = w and the constraint that the sparsity pattern of E is P (boolean matrix)
 
-If w is not specified, it is chosen as v*λ, where λ ∈ iR
-is chosen to minimize `constrained_optimal_value(A, v, vλ)`
+If target is a vector, w=target. Else target can be :LHP, :Disc, :0, and then w = v*λ, where λ
+is chosen (outside the target or on its border) to minimize `constrained_optimal_value(A, v, vλ)`
 """
-function constrained_optimal_value(A, v, w=Nothing, P=(A.!=0))
+function constrained_optimal_value(A, v, target, P=(A.!=0))
     # @assert norm(v) ≈ 1 # removed since this will go in a tight loop
+
+    # TODO: Reduce duplication!
     Av = A*v
     m2 = P * abs2.(v)
-    if w==Nothing
+    if target === :LHP
         norma = sqrt(sum(abs2.(v) ./ m2))
-        lambda = 1im / norma * imag(v' * (Av ./ m2))
+        lambda0 = (v' * (Av ./ m2)) / norma
+        if real(lambda0) >= 0
+            lambda0 = lambda
+        else
+            lambda = 1im * imag(lambda0)
+        end
         w = v * lambda
+    elseif target === :Disc
+        norma = sqrt(sum(abs2.(v) ./ m2))
+        lambda0 = (v' * (Av ./ m2)) / norma
+        al = abs(lambda0)
+        if al >1
+            lambda = lambda0
+        else
+            lambda = lambda0 / al
+        end
+        w = v * lambda
+    elseif target === :0
+        w = zeros(eltype(v), size(v))
+    elseif isa(target, AbstractVector)
+        w = target
+    else
+        error("Unknown target vector")
     end
     z = w - Av
     optval = sum(abs2.(z) ./ m2)
@@ -30,18 +53,39 @@ function constrained_optimal_value(A, v, w=Nothing, P=(A.!=0))
 end
 
 """
-    `E = constrained_minimizer(A, v, w=Nothing, P= (A.!=0))`
+    `E = constrained_minimizer(A, v, target, P= (A.!=0))`
 
 Computes the argmin corresponding to `constrained_optimal_value`
 """
-function constrained_minimizer(A, v, w=Nothing, P= (A.!=0))
+function constrained_minimizer(A, v, target, P= (A.!=0))
     @assert norm(v) ≈ 1
     Av = A*v
     m2 = P * abs2.(v)
-    if w==Nothing
+    if target === :LHP
         norma = sqrt(sum(abs2.(v) ./ m2))
-        lambda = 1im / norma * imag(v' * (Av ./ m2))
+        lambda0 = (v' * (Av ./ m2)) / norma
+        if real(lambda0) >= 0
+            lambda0 = lambda
+        else
+            lambda = 1im * imag(lambda0)
+        end
         w = v * lambda
+    elseif target === :Disc
+        norma = sqrt(sum(abs2.(v) ./ m2))
+        lambda0 = (v' * (Av ./ m2)) / norma
+        al = abs(lambda0)
+        if al >1
+            lambda = lambda0
+        else
+            lambda = lambda0 / al
+        end
+        w = v * lambda
+    elseif target === :0
+        w = zeros(eltype(v), size(v))
+    elseif isa(target, AbstractVector)
+        w = target
+    else
+        error("Unknown target vector")
     end
     z = (w - Av) ./ m2
     E = z .* (v' .* P)

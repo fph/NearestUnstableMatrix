@@ -9,8 +9,10 @@ n = size(A,1)
 M = Sphere(n-1, ℂ)
 x0 = project(M, randn(ComplexF64, n))
 
-f(M, v) = constrained_optimal_value(A, v, zeros(ComplexF64, n)) # nearest singular matrix
-# f(M, v) = constrained_optimal_value(A, v) # nearest non-Hurwitz stable matrix
+target = :0 # nearest singular matrix
+target = :LHP # nearest non-Hurwitz stable matrix
+
+f(M, v) = constrained_optimal_value(A, v, target) 
 
 function g(M, v)
     gr = complexgradient(x -> f(M, x), v)
@@ -30,4 +32,4 @@ end
 
 x = trust_regions(M, f, g_zygote, x0; debug=[:Iteration,(:Change, "|Δp|: %1.9f |"), (:Cost, " F(x): %1.11f | "), "\n", :Stop],)
 
-E = constrained_minimizer(A, x)
+E = constrained_minimizer(A, x, target)
