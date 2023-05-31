@@ -3,24 +3,43 @@ module NearestUnstableMatrix
 using LinearAlgebra
 using ForwardDiff
 
+import ChainRulesCore
+using ChainRulesCore: ProjectTo, @not_implemented, @thunk
+
+
 export constrained_minimizer, constrained_optimal_value, complexgradient, 
         #complexgradient_reverse, make_tape
         complexgradient_zygote
+
+"""
+    Custom type to wrap matrix multiplication, to work around an (apparent)
+    bug with Zygote and constant sparse booleans.
+"""
+struct MatrixWrapper{T<:AbstractMatrix}
+    P::T
+end
+(P::MatrixWrapper)(w::AbstractVector) = P.P*w
+# rrule modified from https://discourse.julialang.org/t/zygote-product-with-a-constant-sparse-boolean/99510/3
+function ChainRulesCore.rrule(P::MatrixWrapper, w::AbstractVecOrMat)
+    project_w = ProjectTo(w)
+    pullback(∂y) =  @not_implemented("A assumed constant"), project_w(P.P'*∂y)
+    return P(w), pullback
+end
 
 """
     `optval = constrained_optimal_value(A, v, target, P=(A.!=0))`
 
 Computes optval = min ||E||^2 s.t. (A+E)v = w and the constraint that the sparsity pattern of E is P (boolean matrix)
 
-If target is a vector, w=target. Else target can be :LHP, :Disc, :0, and then w = v*λ, where λ
+If target is a vector, w=target. Else target can be :LHP, :Disc, :Nonsingular, and then w = v*λ, where λ
 is chosen (outside the target or on its border) to minimize `constrained_optimal_value(A, v, vλ)`
 """
 function constrained_optimal_value(A, v, target, P=(A.!=0))
     # @assert norm(v) ≈ 1 # removed since this will go in a tight loop
 
-    # TODO: Reduce duplication!
+    # TODO: Reduce  code duplication!
     Av = A*v
-    m2 = P * abs2.(v)
+    m2 = MatrixWrapper(P)(abs2.(v))
     if target === :LHP
         norma = sqrt(sum(abs2.(v) ./ m2))
         lambda0 = (v' * (Av ./ m2)) / norma
@@ -40,7 +59,7 @@ function constrained_optimal_value(A, v, target, P=(A.!=0))
             lambda = lambda0 / al
         end
         w = v * lambda
-    elseif target === :0
+    elseif target === :Nonsingular
         w = zeros(eltype(v), size(v))
     elseif isa(target, AbstractVector)
         w = target
@@ -60,7 +79,7 @@ Computes the argmin corresponding to `constrained_optimal_value`
 function constrained_minimizer(A, v, target, P= (A.!=0))
     @assert norm(v) ≈ 1
     Av = A*v
-    m2 = P * abs2.(v)
+    m2 = MatrixWrapper(P)(abs2.(v))
     if target === :LHP
         norma = sqrt(sum(abs2.(v) ./ m2))
         lambda0 = (v' * (Av ./ m2)) / norma
@@ -80,7 +99,7 @@ function constrained_minimizer(A, v, target, P= (A.!=0))
             lambda = lambda0 / al
         end
         w = v * lambda
-    elseif target === :0
+    elseif target === :Nonsingular
         w = zeros(eltype(v), size(v))
     elseif isa(target, AbstractVector)
         w = target
