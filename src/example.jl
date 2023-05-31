@@ -9,8 +9,8 @@ n = size(A,1)
 M = Sphere(n-1, ℂ)
 x0 = project(M, randn(ComplexF64, n))
 
-target = :Nonsingular # nearest singular matrix
-# target = :LHP # nearest non-Hurwitz stable matrix
+target = Nonsingular # nearest singular matrix
+# target = Hurwitz # nearest non-Hurwitz stable matrix
 
 f(M, v) = constrained_optimal_value(A, v, target) 
 

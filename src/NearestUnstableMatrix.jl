@@ -7,10 +7,10 @@ import ChainRulesCore
 using ChainRulesCore: ProjectTo, @not_implemented, @thunk
 
 
-export constrained_minimizer, constrained_optimal_value, complexgradient, 
-        #complexgradient_reverse, make_tape
-        complexgradient_zygote
-
+export constrained_minimizer, constrained_optimal_value, 
+    complexgradient, complexgradient_zygote, #complexgradient_reverse, make_tape,
+    Disc, OutsideDisc, Hurwitz, Schur, Nonsingular, LeftHalfPlane
+    
 """
     Custom type to wrap matrix multiplication, to work around an (apparent)
     bug with Zygote and constant sparse booleans.
@@ -24,6 +24,32 @@ function ChainRulesCore.rrule(P::MatrixWrapper, w::AbstractVecOrMat)
     project_w = ProjectTo(w)
     pullback(∂y) =  @not_implemented("A assumed constant"), project_w(P.P'*∂y)
     return P(w), pullback
+end
+
+abstract type Region end
+struct Disc <: Region
+    r::Float64
+end
+struct OutsideDisc <: Region
+    r::Float64
+end
+const Schur = Disc(1.0)
+const Nonsingular = OutsideDisc(0.0)
+struct LeftHalfPlane <: Region
+    re::Float64
+end
+const Hurwitz = LeftHalfPlane(0.0)
+
+function project_outside(d::Disc, lambda)
+    a = abs(lambda)
+    return ifelse(a < d.r, lambda/a*d.r, lambda)
+end
+function project_outside(d::OutsideDisc, lambda)
+    a = abs(lambda)
+    return ifelse(a > d.r, lambda/a*d.r, lambda)
+end
+function project_outside(l::LeftHalfPlane, lambda)
+    return ifelse(real(lambda)<l.re, lambda-real(lambda)+l.re, lambda)
 end
 
 """
@@ -40,31 +66,15 @@ function constrained_optimal_value(A, v, target, P=(A.!=0))
     # TODO: Reduce  code duplication!
     Av = A*v
     m2 = MatrixWrapper(P)(abs2.(v))
-    if target === :LHP
+    if isa(target, Region)
         norma = sqrt(sum(abs2.(v) ./ m2))
         lambda0 = (v' * (Av ./ m2)) / norma
-        if real(lambda0) >= 0
-            lambda = lambda0
-        else
-            lambda = 1im * imag(lambda0)
-        end
+        lambda = project_outside(target, lambda0)
         w = v * lambda
-    elseif target === :Disc
-        norma = sqrt(sum(abs2.(v) ./ m2))
-        lambda0 = (v' * (Av ./ m2)) / norma
-        al = abs(lambda0)
-        if al >1
-            lambda = lambda0
-        else
-            lambda = lambda0 / al
-        end
-        w = v * lambda
-    elseif target === :Nonsingular
-        w = zeros(eltype(v), size(v))
     elseif isa(target, AbstractVector)
         w = target
     else
-        error("Unknown target vector")
+        error("Unknown target specification")
     end
     z = w - Av
     optval = sum(abs2.(z) ./ m2)
@@ -80,31 +90,15 @@ function constrained_minimizer(A, v, target, P= (A.!=0))
     @assert norm(v) ≈ 1
     Av = A*v
     m2 = MatrixWrapper(P)(abs2.(v))
-    if target === :LHP
+    if isa(target, Region)
         norma = sqrt(sum(abs2.(v) ./ m2))
         lambda0 = (v' * (Av ./ m2)) / norma
-        if real(lambda0) >= 0
-            lambda = lambda0
-        else
-            lambda = 1im * imag(lambda0)
-        end
+        lambda = project_outside(target, lambda0)
         w = v * lambda
-    elseif target === :Disc
-        norma = sqrt(sum(abs2.(v) ./ m2))
-        lambda0 = (v' * (Av ./ m2)) / norma
-        al = abs(lambda0)
-        if al >1
-            lambda = lambda0
-        else
-            lambda = lambda0 / al
-        end
-        w = v * lambda
-    elseif target === :Nonsingular
-        w = zeros(eltype(v), size(v))
     elseif isa(target, AbstractVector)
         w = target
     else
-        error("Unknown target vector")
+        error("Unknown target specification")
     end
     z = (w - Av) ./ m2
     E = z .* (v' .* P)
