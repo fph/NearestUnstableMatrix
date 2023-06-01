@@ -115,6 +115,11 @@ function complexgradient(f, cv)
    gr = ForwardDiff.gradient(x -> f(x[1:n] + 1im * x[n+1:end]), [real(cv); imag(cv)]) 
    return gr[1:n] + 1im * gr[n+1:end]
 end
+function complexhessian(f, cv)
+    n = length(cv)
+    H = ForwardDiff.hessian(x -> f(x[1:n] + 1im * x[n+1:end]), [real(cv); imag(cv)]) 
+    return H
+end 
 
 using Zygote
 
