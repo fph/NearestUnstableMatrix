@@ -61,9 +61,6 @@ If target is a vector, w=target. Else target can be :LHP, :Disc, :Nonsingular, a
 is chosen (outside the target or on its border) to minimize `constrained_optimal_value(A, v, vλ)`
 """
 function constrained_optimal_value(A, v, target, P=(A.!=0))
-    # @assert norm(v) ≈ 1 # removed since this will go in a tight loop
-
-    # TODO: Reduce  code duplication!
     Av = A*v
     m2 = MatrixWrapper(P)(abs2.(v))
     if isa(target, Region)
@@ -87,7 +84,6 @@ end
 Computes the argmin corresponding to `constrained_optimal_value`
 """
 function constrained_minimizer(A, v, target, P= (A.!=0))
-    @assert norm(v) ≈ 1
     Av = A*v
     m2 = MatrixWrapper(P)(abs2.(v))
     if isa(target, Region)
