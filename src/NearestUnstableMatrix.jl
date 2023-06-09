@@ -119,7 +119,7 @@ function complexhessian(f, cv)
     n = length(cv)
     H = ForwardDiff.hessian(x -> f(x[1:n] + 1im * x[n+1:end]), [real(cv); imag(cv)]) 
     return H
-end 
+end
 
 using Zygote
 
@@ -131,6 +131,13 @@ As `complexgradient`, but uses reverse-mode AD in Zygote.
 function complexgradient_zygote(f, cv)
     return gradient(f, cv)
 end
+function complexhessian_zygote(f, cv)
+    # currently works only for dense matrices
+    n = length(cv)
+    H = Zygote.hessian(x -> f(x[1:n] + 1im * x[n+1:end]), [real(cv); imag(cv)]) 
+    return H
+end
+
 
 # Alternative implementation using ReverseDiff.
 # Unfortunately it doesn't work as ReverseDiff does not like complex numbers even internally
