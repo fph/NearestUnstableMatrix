@@ -4,13 +4,14 @@ using NearestUnstableMatrix
 A = reshape(collect(1:16), (4,4)); A[1,3:4] .= 0; A[2,4] = 0; A[3,1] = 0; A[4, 1:2] .= 0; A = Float64.(A)
 A = A - 30 * I
 
+target = Nonsingular # nearest singular matrix
+# target = Hurwitz # nearest non-Hurwitz stable matrix
+
 n = size(A,1)
 
 M = Sphere(n-1, ℂ)
 x0 = project(M, randn(ComplexF64, n))
 
-target = Nonsingular # nearest singular matrix
-# target = Hurwitz # nearest non-Hurwitz stable matrix
 
 f(M, v) = constrained_optimal_value(A, v, target) 
 

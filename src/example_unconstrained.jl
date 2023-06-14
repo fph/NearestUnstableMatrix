@@ -7,10 +7,10 @@ using NearestUnstableMatrix
 A = reshape(collect(1:16), (4,4)); A[1,3:4] .= 0; A[2,4] = 0; A[3,1] = 0; A[4, 1:2] .= 0; A = Float64.(A)
 A = A - 30 * I
 
-n = size(A,1)
-
 target = Nonsingular # nearest singular matrix
 # target = Hurwitz # nearest non-Hurwitz stable matrix
+
+n = size(A,1)
 
 L = 10_000
 
