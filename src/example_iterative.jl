@@ -5,7 +5,7 @@ Random.seed!(0)
 A = sprandn(400, 400, 0.05)
 n = size(A,1)
 
-M = Sphere(n-1, ℂ)
+M = Manifolds.Sphere(n-1, ℂ)
 
 # use a full eigendecomposition for simplicity (will not scale well)
 eig = eigen(Array(A))

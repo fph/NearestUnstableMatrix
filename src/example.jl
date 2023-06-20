@@ -9,7 +9,7 @@ target = Nonsingular # nearest singular matrix
 
 n = size(A,1)
 
-M = Sphere(n-1, ℂ)
+M = Manifolds.Sphere(n-1, ℂ)
 x0 = project(M, randn(ComplexF64, n))
 
 
