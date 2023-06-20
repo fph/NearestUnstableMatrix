@@ -60,9 +60,9 @@ Computes optval = min ||E||^2 s.t. (A+E)v = w and the constraint that the sparsi
 If target is a vector, w=target. Else target can be :LHP, :Disc, :Nonsingular, and then w = v*λ, where λ
 is chosen (outside the target or on its border) to minimize `constrained_optimal_value(A, v, vλ)`
 """
-function constrained_optimal_value(A, v, target, P=(A.!=0))
+function constrained_optimal_value(A, v, target, P=(A.!=0); regularization=0.0)
     Av = A*v
-    m2 = MatrixWrapper(P)(abs2.(v))
+    m2 = MatrixWrapper(P)(abs2.(v)) .+ regularization^2
     if isa(target, Region)
         norma = sqrt(sum(abs2.(v) ./ m2))
         lambda0 = (v' * (Av ./ m2)) / norma
@@ -83,9 +83,9 @@ end
 
 Computes the argmin corresponding to `constrained_optimal_value`
 """
-function constrained_minimizer(A, v, target, P= (A.!=0))
+function constrained_minimizer(A, v, target, P= (A.!=0); regularization=0.0)
     Av = A*v
-    m2 = MatrixWrapper(P)(abs2.(v))
+    m2 = MatrixWrapper(P)(abs2.(v)) .+ regularization^2
     if isa(target, Region)
         norma = sqrt(sum(abs2.(v) ./ m2))
         lambda0 = (v' * (Av ./ m2)) / norma
