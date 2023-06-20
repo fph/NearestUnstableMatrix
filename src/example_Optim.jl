@@ -13,18 +13,18 @@ n = size(A,1)
 f(v) = constrained_optimal_value(A, v, target)
 
 function g(v)
-    gr = complexgradient(f, v)
+    gr = realgradient(f, v)
     return gr
 end
 
 # const tape = make_tape(x -> f(M, x), x0)
 # function g_rev(M, v)
-#     gr = complexgradient_reverse(v, tape)
+#     gr = realgradient_reverse(v, tape)
 #     return project(M, v, gr)
 # end
 
 function g_zygote(v)
-    gr = first(complexgradient_zygote(f, v))
+    gr = first(realgradient_zygote(f, v))
     return gr
 end
 

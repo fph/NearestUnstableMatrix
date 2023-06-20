@@ -16,18 +16,18 @@ x0 = project(M, randn(ComplexF64, n))
 f(M, v) = constrained_optimal_value(A, v, target) 
 
 function g(M, v)
-    gr = complexgradient(x -> f(M, x), v)
+    gr = realgradient(x -> f(M, x), v)
     return project(M, v, gr)
 end
 
 # const tape = make_tape(x -> f(M, x), x0)
 # function g_rev(M, v)
-#     gr = complexgradient_reverse(v, tape)
+#     gr = realgradient_reverse(v, tape)
 #     return project(M, v, gr)
 # end
 
 function g_zygote(M, v)
-    gr = first(complexgradient_zygote(x -> f(M, x), v))
+    gr = first(realgradient_zygote(x -> f(M, x), v))
     return project(M, v, gr)
 end
 

@@ -8,7 +8,7 @@ using ChainRulesCore: ProjectTo, @not_implemented, @thunk
 
 
 export constrained_minimizer, constrained_optimal_value, 
-    complexgradient, complexgradient_zygote, #complexgradient_reverse, make_tape,
+    realgradient, realgradient_zygote, #realgradient_reverse, make_tape,
     Disc, OutsideDisc, Hurwitz, Schur, Nonsingular, LeftHalfPlane
     
 """
@@ -102,16 +102,16 @@ function constrained_minimizer(A, v, target, P= (A.!=0))
 end
 
 """
-    `g = complexgradient(f, cv)`
+    `g = realgradient(f, cv)`
 
 Computes the Euclidean gradient of a function f: C^n -> C^n (seen as C^n ≡ R^{2n}), using forward-mode AD
 """
-function complexgradient(f, cv)
+function realgradient(f, cv)
    n = length(cv)
    gr = ForwardDiff.gradient(x -> f(x[1:n] + 1im * x[n+1:end]), [real(cv); imag(cv)]) 
    return gr[1:n] + 1im * gr[n+1:end]
 end
-function complexhessian(f, cv)
+function realhessian(f, cv)
     n = length(cv)
     H = ForwardDiff.hessian(x -> f(x[1:n] + 1im * x[n+1:end]), [real(cv); imag(cv)]) 
     return H
@@ -120,14 +120,14 @@ end
 using Zygote
 
 """
-    `g = complexgradient_zygote(f, cv)`
+    `g = realgradient_zygote(f, cv)`
 
-As `complexgradient`, but uses reverse-mode AD in Zygote.
+As `realgradient`, but uses reverse-mode AD in Zygote.
 """
-function complexgradient_zygote(f, cv)
+function realgradient_zygote(f, cv)
     return gradient(f, cv)
 end
-function complexhessian_zygote(f, cv)
+function realhessian_zygote(f, cv)
     # currently works only for dense matrices
     n = length(cv)
     H = Zygote.hessian(x -> f(x[1:n] + 1im * x[n+1:end]), [real(cv); imag(cv)]) 
@@ -145,7 +145,7 @@ end
 #     compiled_tape = compile(f_tape)
 #     return compiled_tape
 # end
-# function complexgradient_reverse(cv, tape)
+# function realgradient_reverse(cv, tape)
 #     rv = [real(cv); imag(cv)]
 #     results = similar(rv)
 #     gradient!(results, tape, inputs)
