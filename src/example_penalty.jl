@@ -34,7 +34,13 @@ for regularization = 10. .^ (-1:-1:-12)
         return project(M, v, gr)
     end
 
-    x = quasi_Newton(M, f, g_zygote, x0; debug=[:Iteration,(:Change, "|Δp|: %1.9f |"), (:Cost, " F(x): %1.11f | "), (:GradientNorm, " ||∇F(x)||: %1.11f | "),  "\n", :Stop],)
+    x = trust_regions(M, f, g_zygote, x0; 
+    debug=[:Iteration,(:Change, "|Δp|: %1.9f |"), 
+            (:Cost, " F(x): %1.11f | "), 
+            (:GradientNorm, " ||∇F(x)||: %1.11f | "),  
+            "\n", :Stop], 
+            stopping_criterion=StopWhenAny(StopAfterIteration(100000), 
+                                    StopWhenGradientNormLess(10^(-5))))
     @show regularization
 #    @show x
     x0 = x
