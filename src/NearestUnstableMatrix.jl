@@ -79,6 +79,27 @@ function constrained_optimal_value(A, v, target, P=(A.!=0); regularization=0.0)
 end
 
 """
+Returns w such that constrained_optimal_value = norm(w)^2, for use in Levenberg-Marquardt-type algorithms
+"""
+function constrained_optimal_value_LM(A, v, target, P=(A.!=0); regularization=0.0)
+    Av = A*v
+    m2 = MatrixWrapper(P)(abs2.(v)) .+ regularization^2
+    if isa(target, Region)
+        norma = sqrt(sum(abs2.(v) ./ m2))
+        lambda0 = (v' * (Av ./ m2)) / norma
+        lambda = project_outside(target, lambda0)
+        w = v * lambda
+    elseif isa(target, AbstractVector)
+        w = target
+    else
+        error("Unknown target specification")
+    end
+    z = w - Av
+    fval = z ./ sqrt.(m2)
+    return fval
+end
+
+"""
     `E = constrained_minimizer(A, v, target, P= (A.!=0))`
 
 Computes the argmin corresponding to `constrained_optimal_value`
