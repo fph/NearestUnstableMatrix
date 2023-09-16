@@ -12,31 +12,13 @@ n = size(A,1)
 M = Manifolds.Sphere(n-1, ℂ)
 x0 = project(M, randn(Complex{eltype(A)}, n))
 
-
-f(M, v) = constrained_optimal_value(A, v, target)
-
-function g(M, v)
-    gr = realgradient(x -> f(M, x), v)
-    return project(M, v, gr)
-end
-
-# const tape = make_tape(x -> f(M, x), x0)
-# function g_rev(M, v)
-#     gr = realgradient_reverse(v, tape)
-#     return project(M, v, gr)
-# end
-
-function g_zygote(M, v)
-    gr = first(realgradient_zygote(x -> f(M, x), v))
-    return project(M, v, gr)
-end
-
-x = trust_regions(M, f, g_zygote, x0; 
-    debug=[:Iteration,(:Change, "|Δp|: %1.9f |"),
-            (:Cost, " F(x): %1.11f | "),
-            (:GradientNorm, " ||∇F(x)||: %1.11f | "),
-            "\n", :Stop],
-            stopping_criterion=StopWhenAny(StopAfterIteration(1000),
+x = nearest_eigenvector_outside(target, A, x0,
+#    optimizer=quasi_Newton,
+    debug=[:Iteration,(:Change, "|Δp|: %1.9f |"), 
+            (:Cost, " F(x): %1.11f | "), 
+            (:GradientNorm, " ||∇F(x)||: %1.11f | "),  
+            "\n", :Stop], 
+            stopping_criterion=StopWhenAny(StopAfterIteration(1000), 
                                     StopWhenGradientNormLess(10^(-6))))
 
 E = constrained_minimizer(A, x, target)

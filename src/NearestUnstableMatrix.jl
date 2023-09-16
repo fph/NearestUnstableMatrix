@@ -9,7 +9,8 @@ using ChainRulesCore: ProjectTo, @not_implemented, @thunk
 
 export constrained_minimizer, constrained_optimal_value, 
     realgradient, realgradient_zygote, #realgradient_reverse, make_tape,
-    Disc, OutsideDisc, Hurwitz, Schur, Nonsingular, LeftHalfPlane
+    Disc, OutsideDisc, Hurwitz, Schur, Nonsingular, LeftHalfPlane,
+    nearest_eigenvector_outside
     
 """
     Custom type to wrap matrix multiplication, to work around an (apparent)
@@ -171,5 +172,32 @@ end
 #     results = similar(rv)
 #     gradient!(results, tape, inputs)
 # end
+
+using Manifolds, Manopt
+"""
+    nearest_eigenvector_outside(target, A, args...; optimizer=Manopt.trust_regions)
+
+Computes v such that (A+E)v = v*lambda, lambda is _outside_ the target region, and ||E||_F is minimal
+Additional keyword arguments are passed to the optimizer (for `debug`, `stopping_criterion`, etc.).
+"""
+function nearest_eigenvector_outside(target, A, x0; optimizer=Manopt.trust_regions, kwargs...)
+    n = size(A,1)
+
+    M = Manifolds.Sphere(n-1, ℂ)
+
+    f(M, v) = constrained_optimal_value(A, v, target)
+
+    # function g(M, v)
+    #     gr = realgradient(x -> f(M, x), v)
+    #     return project(M, v, gr)
+    # end
+
+    function g_zygote(M, v)
+        gr = first(realgradient_zygote(x -> f(M, x), v))
+        return project(M, v, gr)
+    end
+
+    x = optimizer(M, f, g_zygote, x0; kwargs...)
+end
 
 end

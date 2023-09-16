@@ -24,31 +24,21 @@ M = Manifolds.Sphere(n-1, ℂ)
 U, S, V = svd(Array(A))
 x0 = complex.(V[:, end])
 @info "Computed SVD; minimum singular value $(S[end,end])"
+
+x0 = project(M, randn(ComplexF64, n))
+
 target = Nonsingular
 
 for k = 0:10
     @info "Real o.v.: $(constrained_optimal_value(A, x0, target))"
 
-    f(M, v) = constrained_optimal_value(A, v, target; regularization=(10.)^(-k))
-
-    function g(M, v)
-        gr = realgradient(x -> f(M, x), v)
-        return project(M, v, gr)
-    end
-
-    function g_zygote(M, v)
-        gr = first(realgradient_zygote(x -> f(M, x), v))
-        return project(M, v, gr)
-    end
-
     max_iter = k==10 ? 1000 : 10_000
-    x = trust_regions(M, f, g_zygote, x0; 
+    x = nearest_eigenvector_outside(target, A, x0,
     debug=[(:Iteration, "$k/%d"),(:Change, "|Δp|: %1.9f |"), (:Cost, " F(x): %1.11f | "), (:GradientNorm, " ||∇F(x)||: %1.11f | "), 1, "\n", :Stop],
     stopping_criterion=StopWhenAny(StopAfterIteration(max_iter), 
     StopWhenGradientNormLess(10^(-6))))
     
     x0 .= x
-    @show k
 end
 
 E = constrained_minimizer(A, x, target)
