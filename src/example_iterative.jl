@@ -39,7 +39,7 @@ for k = 1:N
     max_iter = k<n ? 1000 : 10000
 
     global x = quasi_Newton(M, f, g_zygote, x0; 
-    debug=[(:Iteration, "$k/%d"),(:Change, "|Δp|: %1.9f |"), (:Cost, " F(x): %1.11f | "), (:GradientNorm, " ||∇F(x)||: %1.11f | "),  "\n", :Stop],
+    debug=[(:Iteration, "$k/%d"),(:Change, "|Δp|: %1.9f |"), (:Cost, " F(x): %1.11f | "), (:GradientNorm, " ||∇F(x)||: %1.11f | "), 10, "\n", :Stop],
     stopping_criterion=StopWhenAny(StopAfterIteration(max_iter), 
     StopWhenGradientNormLess(10^(-6))))
     
