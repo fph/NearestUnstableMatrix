@@ -54,6 +54,18 @@ function project_outside(l::LeftHalfPlane, lambda)
 end
 
 """
+    lambda_opt(Av, v, target, m2)
+
+Computes the optimal projected eigenvalue lambda for a given problem
+"""
+function lambda_opt(Av, v, target::Region, m2)
+    norma = sum(abs2.(v) ./ m2)
+    lambda0 = (v' * (Av ./ m2)) / norma
+    lambda = project_outside(target, lambda0)
+    return lambda
+end
+
+"""
     `optval = constrained_optimal_value(A, v, target, P=(A.!=0))`
 
 Computes optval = min ||E||^2 s.t. (A+E)v = w and the constraint that the sparsity pattern of E is P (boolean matrix)
@@ -64,16 +76,8 @@ is chosen (outside the target or on its border) to minimize `constrained_optimal
 function constrained_optimal_value(A, v, target, P=(A.!=0); regularization=0.0)
     Av = A*v
     m2 = MatrixWrapper(P)(abs2.(v)) .+ regularization^2
-    if isa(target, Region)
-        norma = sqrt(sum(abs2.(v) ./ m2))
-        lambda0 = (v' * (Av ./ m2)) / norma
-        lambda = project_outside(target, lambda0)
-        w = v * lambda
-    elseif isa(target, AbstractVector)
-        w = target
-    else
-        error("Unknown target specification")
-    end
+    lambda = lambda_opt(Av, v, target, m2)
+    w = v * lambda
     z = w - Av
     optval = sum(abs2.(z) ./ m2)
     return optval
@@ -85,16 +89,8 @@ Returns w such that constrained_optimal_value = norm(w)^2, for use in Levenberg-
 function constrained_optimal_value_LM(A, v, target, P=(A.!=0); regularization=0.0)
     Av = A*v
     m2 = MatrixWrapper(P)(abs2.(v)) .+ regularization^2
-    if isa(target, Region)
-        norma = sqrt(sum(abs2.(v) ./ m2))
-        lambda0 = (v' * (Av ./ m2)) / norma
-        lambda = project_outside(target, lambda0)
-        w = v * lambda
-    elseif isa(target, AbstractVector)
-        w = target
-    else
-        error("Unknown target specification")
-    end
+    lambda = lambda_opt(Av, v, target, m2)
+    w = v * lambda
     z = w - Av
     fval = z ./ sqrt.(m2)
     return fval
@@ -105,22 +101,37 @@ end
 
 Computes the argmin corresponding to `constrained_optimal_value`
 """
-function constrained_minimizer(A, v, target, P= (A.!=0); regularization=0.0)
+function constrained_minimizer(A, v, target, P=(A.!=0); regularization=0.0)
     Av = A*v
     m2 = MatrixWrapper(P)(abs2.(v)) .+ regularization^2
-    if isa(target, Region)
-        norma = sqrt(sum(abs2.(v) ./ m2))
-        lambda0 = (v' * (Av ./ m2)) / norma
-        lambda = project_outside(target, lambda0)
-        w = v * lambda
-    elseif isa(target, AbstractVector)
-        w = target
-    else
-        error("Unknown target specification")
-    end
-    z = (w - Av) ./ m2
-    E = z .* (v' .* P)
+    lambda = lambda_opt(Av, v, target, m2)
+    w = v * lambda
+    z = w - Av
+    E = (z ./ m2) .* (v' .* P)  # the middle .* broadcasts column * row
     return E
+end
+
+"""
+    Returns the augmented Lagrangian without the 1/reg*||y||^2 term, which is useless for minimization since it is constant
+"""
+function reduced_augmented_Lagrangian(A, v, y, target, P=(A.!=0); regularization=0.0)
+    Av_mod = A*v + regularization*y
+    m2 = MatrixWrapper(P)(abs2.(v)) .+ regularization^2
+    lambda = lambda_opt(Av_mod, v, target, m2)
+    w = v * lambda
+    z = w - Av_mod
+    optval = sum(abs2.(z) ./ m2)
+    return optval
+end
+
+function reduced_augmented_Lagrangian_minimizer(A, v, y, target, P=(A.!=0); regularization=0.0)
+    Av_mod = A*v + regularization*y
+    m2 = MatrixWrapper(P)(abs2.(v)) .+ regularization^2
+    lambda = lambda_opt(Av_mod, v, target, m2)
+    w = v * lambda
+    z = w - Av_mod
+    E = (z ./ m2) .* (v' .* P)  # the middle .* broadcasts column * row
+    return E, lambda
 end
 
 """
@@ -182,7 +193,6 @@ Additional keyword arguments are passed to the optimizer (for `debug`, `stopping
 """
 function nearest_eigenvector_outside(target, A, x0; optimizer=Manopt.trust_regions, kwargs...)
     n = size(A,1)
-
     M = Manifolds.Sphere(n-1, ℂ)
 
     f(M, v) = constrained_optimal_value(A, v, target)
@@ -200,4 +210,42 @@ function nearest_eigenvector_outside(target, A, x0; optimizer=Manopt.trust_regio
     x = optimizer(M, f, g_zygote, x0; kwargs...)
 end
 
+function augmented_Lagrangian_approach(target, A, x0; optimizer=Manopt.trust_regions, starting_regularization=1., kwargs...)
+    n = size(A,1)
+    M = Manifolds.Sphere(n-1, ℂ)
+
+    y = zero(x0)  # this will be updated anyway
+    regularization = starting_regularization
+    x0_warmstart = copy(x0)
+    for k = 1:30
+        @show augmented_Lagrangian = reduced_augmented_Lagrangian(A, x0_warmstart, y, target; regularization) + (1/regularization) * norm(y)^2
+        
+        # We start with a dual gradient ascent step from x0 to get a plausible y0
+        # dual gradient ascent.
+        E, lambda = reduced_augmented_Lagrangian_minimizer(A, x0_warmstart, y, target; regularization)
+        y .= y + (1/regularization) * ((A+E)*x0_warmstart - x0_warmstart*lambda)
+
+        @show constraint_violation = norm((A+E)*x0_warmstart - x0_warmstart*lambda)
+        @show original_function_value = constrained_optimal_value(A, x0_warmstart, target)
+        
+
+        f(M, v) = reduced_augmented_Lagrangian(A, v, y, target; regularization)
+
+        # function g(M, v)
+        #     gr = realgradient(x -> f(M, x), v)
+        #     return project(M, v, gr)
+        # end
+
+        function g_zygote(M, v)
+            gr = first(realgradient_zygote(x -> f(M, x), v))
+            return project(M, v, gr)
+        end
+
+        x = optimizer(M, f, g_zygote, x0; kwargs...)
+
+        x0_warmstart .= x
+        regularization = regularization / 2.
+    end
 end
+
+end # module
