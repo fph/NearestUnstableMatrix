@@ -10,7 +10,8 @@ using ChainRulesCore: ProjectTo, @not_implemented, @thunk
 export constrained_minimizer, constrained_optimal_value, 
     realgradient, realgradient_zygote, #realgradient_reverse, make_tape,
     Disc, OutsideDisc, Hurwitz, Schur, Nonsingular, LeftHalfPlane,
-    nearest_eigenvector_outside
+    nearest_eigenvector_outside,
+    MatrixWrapper
     
 """
     Custom type to wrap matrix multiplication, to work around an (apparent)
@@ -53,15 +54,30 @@ function project_outside(l::LeftHalfPlane, lambda)
     return ifelse(real(lambda)<l.re, lambda-real(lambda)+l.re, lambda)
 end
 
+nantozero(x) = isnan(x) ? zero(x) : x
+sum_ignoring_nans(x) = sum(nantozero, x)
+
+
 """
     lambda_opt(Av, v, target, m2)
 
 Computes the optimal projected eigenvalue lambda for a given problem
 """
 function lambda_opt(Av, v, target::Region, m2)
-    norma = sum(abs2.(v) ./ m2)
-    lambda0 = (v' * (Av ./ m2)) / norma
-    lambda = project_outside(target, lambda0)
+    local lambda::eltype(v)
+    if any(v[m2 .== 0]  .!= 0)
+        @info "special zero case encountered"
+        # special case: the only feasible solution is lambda == 0
+        if project_outside(target, 0.) != 0.
+            error("There is no solution")
+        else
+            lambda = zero(eltype(v))
+        end
+    else
+        norma = sum_ignoring_nans(abs2.(v) ./ m2)
+        lambda0 = sum_ignoring_nans((conj.(v)) .* (Av ./ m2)) / norma
+        lambda = project_outside(target, lambda0)
+    end
     return lambda
 end
 
@@ -79,7 +95,7 @@ function constrained_optimal_value(A, v, target, P=(A.!=0); regularization=0.0)
     lambda = lambda_opt(Av, v, target, m2)
     w = v * lambda
     z = w - Av
-    optval = sum(abs2.(z) ./ m2)
+    optval = sum_ignoring_nans(abs2.(z) ./ m2)
     return optval
 end
 
@@ -191,11 +207,11 @@ using Manifolds, Manopt
 Computes v such that (A+E)v = v*lambda, lambda is _outside_ the target region, and ||E||_F is minimal
 Additional keyword arguments are passed to the optimizer (for `debug`, `stopping_criterion`, etc.).
 """
-function nearest_eigenvector_outside(target, A, x0; optimizer=Manopt.trust_regions, kwargs...)
+function nearest_eigenvector_outside(target, A, x0; regularization=0.0, optimizer=Manopt.trust_regions, kwargs...)
     n = size(A,1)
     M = Manifolds.Sphere(n-1, ℂ)
 
-    f(M, v) = constrained_optimal_value(A, v, target)
+    f(M, v) = constrained_optimal_value(A, v, target; regularization)
 
     # function g(M, v)
     #     gr = realgradient(x -> f(M, x), v)
@@ -210,15 +226,16 @@ function nearest_eigenvector_outside(target, A, x0; optimizer=Manopt.trust_regio
     x = optimizer(M, f, g_zygote, x0; kwargs...)
 end
 
-function augmented_Lagrangian_approach(target, A, x0; optimizer=Manopt.trust_regions, starting_regularization=1., kwargs...)
+function augmented_Lagrangian_approach(target, A, x0; optimizer=Manopt.trust_regions, iterations=30, starting_regularization=1., kwargs...)
     n = size(A,1)
     M = Manifolds.Sphere(n-1, ℂ)
 
     y = zero(x0)  # this will be updated anyway
     regularization = starting_regularization
     x0_warmstart = copy(x0)
-    for k = 1:30
-        @show augmented_Lagrangian = reduced_augmented_Lagrangian(A, x0_warmstart, y, target; regularization) + (1/regularization) * norm(y)^2
+    for k = 1:iterations
+        @show augmented_Lagrangian = reduced_augmented_Lagrangian(A, x0_warmstart, y, target; regularization) - (1/regularization) * norm(y)^2
+        @show regularization
         
         # We start with a dual gradient ascent step from x0 to get a plausible y0
         # dual gradient ascent.
@@ -241,11 +258,13 @@ function augmented_Lagrangian_approach(target, A, x0; optimizer=Manopt.trust_reg
             return project(M, v, gr)
         end
 
-        x = optimizer(M, f, g_zygote, x0; kwargs...)
+        x = optimizer(M, f, g_zygote, x0_warmstart; kwargs...)
 
         x0_warmstart .= x
         regularization = regularization / 2.
     end
+    @show original_function_value = constrained_optimal_value(A, x0_warmstart, target)
+    return x0_warmstart
 end
 
 end # module
