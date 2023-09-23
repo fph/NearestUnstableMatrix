@@ -16,11 +16,12 @@ export constrained_minimizer, constrained_optimal_value,
 """
     Custom type to wrap matrix multiplication, to work around an (apparent)
     bug with Zygote and constant sparse booleans.
+    Also, this ends up being faster than the custom sparse A*v in Zygote, so we switch to it for all our matrix products
 """
 struct MatrixWrapper{T<:AbstractMatrix}
     P::T
 end
-(P::MatrixWrapper)(w::AbstractVector) = P.P*w
+(P::MatrixWrapper)(w::AbstractVecOrMat) = P.P * w
 # rrule modified from https://discourse.julialang.org/t/zygote-product-with-a-constant-sparse-boolean/99510/3
 function ChainRulesCore.rrule(P::MatrixWrapper, w::AbstractVecOrMat)
     project_w = ProjectTo(w)
@@ -90,7 +91,7 @@ If target is a vector, w=target. Else target can be :LHP, :Disc, :Nonsingular, a
 is chosen (outside the target or on its border) to minimize `constrained_optimal_value(A, v, vλ)`
 """
 function constrained_optimal_value(A, v, target, P=(A.!=0); regularization=0.0)
-    Av = A*v
+    Av = MatrixWrapper(A)(v)  # Av = A*v
     m2 = MatrixWrapper(P)(abs2.(v)) .+ regularization^2
     lambda = lambda_opt(Av, v, target, m2)
     w = v * lambda
@@ -103,7 +104,7 @@ end
 Returns w such that constrained_optimal_value = norm(w)^2, for use in Levenberg-Marquardt-type algorithms
 """
 function constrained_optimal_value_LM(A, v, target, P=(A.!=0); regularization=0.0)
-    Av = A*v
+    Av = MatrixWrapper(A)(v)  # Av = A*v
     m2 = MatrixWrapper(P)(abs2.(v)) .+ regularization^2
     lambda = lambda_opt(Av, v, target, m2)
     w = v * lambda
@@ -118,7 +119,7 @@ end
 Computes the argmin corresponding to `constrained_optimal_value`
 """
 function constrained_minimizer(A, v, target, P=(A.!=0); regularization=0.0)
-    Av = A*v
+    Av = MatrixWrapper(A)(v)  # Av = A*v
     m2 = MatrixWrapper(P)(abs2.(v)) .+ regularization^2
     lambda = lambda_opt(Av, v, target, m2)
     w = v * lambda
@@ -131,7 +132,7 @@ end
     Returns the augmented Lagrangian without the 1/reg*||y||^2 term, which is useless for minimization since it is constant
 """
 function reduced_augmented_Lagrangian(A, v, y, target, P=(A.!=0); regularization=0.0)
-    Av_mod = A*v + regularization*y
+    Av_mod = MatrixWrapper(A)(v) + regularization*y
     m2 = MatrixWrapper(P)(abs2.(v)) .+ regularization^2
     lambda = lambda_opt(Av_mod, v, target, m2)
     w = v * lambda
@@ -141,7 +142,7 @@ function reduced_augmented_Lagrangian(A, v, y, target, P=(A.!=0); regularization
 end
 
 function reduced_augmented_Lagrangian_minimizer(A, v, y, target, P=(A.!=0); regularization=0.0)
-    Av_mod = A*v + regularization*y
+    Av_mod = MatrixWrapper(A)(v) + regularization*y
     m2 = MatrixWrapper(P)(abs2.(v)) .+ regularization^2
     lambda = lambda_opt(Av_mod, v, target, m2)
     w = v * lambda
