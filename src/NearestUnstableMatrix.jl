@@ -66,6 +66,9 @@ Computes the optimal projected eigenvalue lambda for a given problem
 """
 function lambda_opt(Av, v, target::Region, m2)
     local lambda::eltype(v)
+    if isa(target, OutsideDisc) && iszero(target.r)  # hardcoded NonSingular TODO: switch to a different type for it
+        return zero(eltype(v))
+    end
     if any(v[m2 .== 0]  .!= 0)
         @info "special zero case encountered"
         # special case: the only feasible solution is lambda == 0
