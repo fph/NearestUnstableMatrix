@@ -97,8 +97,7 @@ function constrained_optimal_value(A, v, target, P=(A.!=0); regularization=0.0)
     Av = MatrixWrapper(A)(v)  # Av = A*v
     m2 = MatrixWrapper(P)(abs2.(v)) .+ regularization^2
     lambda = lambda_opt(Av, v, target, m2)
-    w = v * lambda
-    z = w - Av
+    z = v * lambda - Av
     optval = sum_ignoring_nans(abs2.(z) ./ m2)
     return optval
 end
@@ -117,7 +116,7 @@ function constrained_optimal_value_LM(A, v, target, P=(A.!=0); regularization=0.
 end
 
 """
-    `E = constrained_minimizer(A, v, target, P= (A.!=0))`
+    `E, lambda = constrained_minimizer(A, v, target, P= (A.!=0))`
 
 Computes the argmin corresponding to `constrained_optimal_value`
 """
@@ -128,7 +127,7 @@ function constrained_minimizer(A, v, target, P=(A.!=0); regularization=0.0)
     w = v * lambda
     z = w - Av
     E = (z ./ m2) .* (v' .* P)  # the middle .* broadcasts column * row
-    return E
+    return E, lambda
 end
 
 """
@@ -230,7 +229,43 @@ function nearest_eigenvector_outside(target, A, x0; regularization=0.0, optimize
     x = optimizer(M, f, g_zygote, x0; kwargs...)
 end
 
-function augmented_Lagrangian_approach(target, A, x0; optimizer=Manopt.trust_regions, iterations=30, starting_regularization=1., kwargs...)
+function penalty_method(target, A, x0; 
+                        optimizer=Manopt.trust_regions, 
+                        iterations=30, 
+                        starting_regularization=1., 
+                        regularization_damping = 0.75, kwargs...)
+
+    n = size(A,1)
+    M = Manifolds.Sphere(n-1, ℂ)
+
+    regularization = starting_regularization
+    x0_warmstart = copy(x0)
+
+    for k = 1:iterations
+        E, lambda = constrained_minimizer(A, x0_warmstart, target; regularization)
+        @show original_function_value = constrained_optimal_value(A, x0_warmstart, target)
+        @show constraint_violation = norm((A+E)*x0_warmstart - x0_warmstart*lambda)
+        @show regularization
+        @show k
+
+        f(M, v) = constrained_optimal_value(A, v, target; regularization)
+
+        function g_zygote(M, v)
+            gr = first(realgradient_zygote(x -> f(M, x), v))
+            return project(M, v, gr)
+        end
+
+        x = optimizer(M, f, g_zygote, x0_warmstart; kwargs...)
+
+        x0_warmstart .= x
+        regularization = regularization * regularization_damping
+    end
+    @show original_function_value = constrained_optimal_value(A, x0_warmstart, target)
+    return x0_warmstart
+end
+
+
+function augmented_Lagrangian_method(target, A, x0; optimizer=Manopt.trust_regions, iterations=30, starting_regularization=1., kwargs...)
     n = size(A,1)
     M = Manifolds.Sphere(n-1, ℂ)
 
