@@ -102,6 +102,10 @@ function constrained_optimal_value(A, v, target, P=(A.!=0); regularization=0.0)
     return optval
 end
 
+function constrained_optimal_value_Euclidean_gradient(A, v, target, P=(A.!=0); regularization=0.0)
+    return first(realgradient_zygote(x -> constrained_optimal_value(A, x, target, P; regularization), v))
+end
+
 """
 Returns w such that constrained_optimal_value = norm(w)^2, for use in Levenberg-Marquardt-type algorithms
 """
@@ -273,13 +277,14 @@ function augmented_Lagrangian_method(target, A, x0; optimizer=Manopt.trust_regio
     regularization = starting_regularization
     x0_warmstart = copy(x0)
     for k = 1:iterations
-        @show augmented_Lagrangian = reduced_augmented_Lagrangian(A, x0_warmstart, y, target; regularization) - (1/regularization) * norm(y)^2
+        @show augmented_Lagrangian = reduced_augmented_Lagrangian(A, x0_warmstart, y, target; regularization) - regularization * norm(y)^2
         @show regularization
         
         # We start with a dual gradient ascent step from x0 to get a plausible y0
         # dual gradient ascent.
         E, lambda = reduced_augmented_Lagrangian_minimizer(A, x0_warmstart, y, target; regularization)
         y .= y + (1/regularization) * ((A+E)*x0_warmstart - x0_warmstart*lambda)
+        @show y
 
         @show constraint_violation = norm((A+E)*x0_warmstart - x0_warmstart*lambda)
         @show original_function_value = constrained_optimal_value(A, x0_warmstart, target)
@@ -305,5 +310,33 @@ function augmented_Lagrangian_method(target, A, x0; optimizer=Manopt.trust_regio
     @show original_function_value = constrained_optimal_value(A, x0_warmstart, target)
     return x0_warmstart
 end
+
+
+"""
+    v, fval = heuristic_zeros(A, v_, target; P=(A.!=0))
+
+    Tries to replace with zeros some entries of v_ (those corresponding to small entries of m2), to get a lower 
+    value fval for constrained_optimal_value.
+"""
+function heuristic_zeros(A, v_, target; P=(A.!=0))
+    v = copy(v_)
+    bestval = constrained_optimal_value(A, v, target)
+    bestvec = copy(v)
+    for k = 1:length(v)
+        m2 = MatrixWrapper(P)(abs2.(v))
+        val, i = findmin(x -> x==0 ? Inf : x,  m2)
+        v[A[i,:] .!= 0.] .= 0.
+        if all(v .== 0)
+            break
+        end
+        curval = constrained_optimal_value(A, v, target)
+        if curval < bestval
+            bestval = curval
+            bestvec .= v
+        end
+    end
+    return bestvec, bestval
+end
+
 
 end # module
