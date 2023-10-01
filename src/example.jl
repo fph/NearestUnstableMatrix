@@ -7,10 +7,7 @@ A = A - 30 * I
 target = Nonsingular # nearest singular matrix
 # target = Hurwitz # nearest non-Hurwitz stable matrix
 
-n = size(A,1)
-
-M = Manifolds.Sphere(n-1, ℂ)
-x0 = project(M, randn(Complex{eltype(A)}, n))
+x0 = project(Manifolds.Sphere(size(A,1) - 1, ℂ), randn(Complex{eltype(A)}, size(A, 1)))
 
 x = nearest_eigenvector_outside(target, A, x0,
 #    optimizer=quasi_Newton,

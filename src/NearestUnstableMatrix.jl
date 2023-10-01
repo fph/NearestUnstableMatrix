@@ -114,7 +114,6 @@ function constrained_optimal_value_Euclidean_gradient_analytic(A, v, target::Non
 end
 
 
-
 """
 Returns w such that constrained_optimal_value = norm(w)^2, for use in Levenberg-Marquardt-type algorithms
 """
@@ -223,29 +222,28 @@ using Manifolds, Manopt
 Computes v such that (A+E)v = v*lambda, lambda is _outside_ the target region, and ||E||_F is minimal
 Additional keyword arguments are passed to the optimizer (for `debug`, `stopping_criterion`, etc.).
 """
-function nearest_eigenvector_outside(target, A, x0; regularization=0.0, optimizer=Manopt.trust_regions, kwargs...)
+function nearest_eigenvector_outside(target, A, x0; regularization=0.0, 
+                                                    optimizer=Manopt.trust_regions, 
+                                                    gradient=constrained_optimal_value_Euclidean_gradient_zygote,
+                                                    kwargs...)
     n = size(A,1)
     M = Manifolds.Sphere(n-1, ℂ)
 
     f(M, v) = constrained_optimal_value(A, v, target; regularization)
 
-    # function g(M, v)
-    #     gr = realgradient(x -> f(M, x), v)
-    #     return project(M, v, gr)
-    # end
-
-    function g_zygote(M, v)
-        gr = first(realgradient_zygote(x -> f(M, x), v))
+    function g(M, v)
+        gr = gradient(A, v, target; regularization)
         return project(M, v, gr)
     end
 
-    x = optimizer(M, f, g_zygote, x0; kwargs...)
+    x = optimizer(M, f, g, x0; kwargs...)
 end
 
 function penalty_method(target, A, x0; 
                         optimizer=Manopt.trust_regions, 
+                        gradient=constrained_optimal_value_Euclidean_gradient_zygote,
                         iterations=30, 
-                        starting_regularization=1., 
+                        starting_regularization=1.,
                         regularization_damping = 0.75, kwargs...)
 
     n = size(A,1)
@@ -257,29 +255,34 @@ function penalty_method(target, A, x0;
     for k = 1:iterations
         E, lambda = constrained_minimizer(A, x0_warmstart, target; regularization)
         @show original_function_value = constrained_optimal_value(A, x0_warmstart, target)
-        @show heuristic_value = NearestUnstableMatrix.heuristic_zeros(A, x0_warmstart, target)
+        @show heuristic_value = NearestUnstableMatrix.heuristic_zeros(A, x0_warmstart, target)[2]
         @show constraint_violation = norm((A+E)*x0_warmstart - x0_warmstart*lambda)
         @show regularization
         @show k
 
         f(M, v) = constrained_optimal_value(A, v, target; regularization)
 
-        function g_zygote(M, v)
-            gr = first(realgradient_zygote(x -> f(M, x), v))
+        function g(M, v)
+            gr = gradient(A, v, target; regularization)
             return project(M, v, gr)
         end
-
-        x = optimizer(M, f, g_zygote, x0_warmstart; kwargs...)
+    
+        x = optimizer(M, f, g, x0_warmstart; kwargs...)
 
         x0_warmstart .= x
         regularization = regularization * regularization_damping
     end
     @show original_function_value = constrained_optimal_value(A, x0_warmstart, target)
+    @show heuristic_value = NearestUnstableMatrix.heuristic_zeros(A, x0_warmstart, target)[2]
     return x0_warmstart
 end
 
 
-function augmented_Lagrangian_method(target, A, x0; optimizer=Manopt.trust_regions, iterations=30, starting_regularization=1., kwargs...)
+function augmented_Lagrangian_method(target, A, x0; optimizer=Manopt.trust_regions,
+                                                    iterations=30,
+                                                    starting_regularization=1., 
+                                                    regularization_damping = 0.75,
+                                                    kwargs...)
     n = size(A,1)
     M = Manifolds.Sphere(n-1, ℂ)
 
@@ -289,35 +292,31 @@ function augmented_Lagrangian_method(target, A, x0; optimizer=Manopt.trust_regio
     for k = 1:iterations
         @show augmented_Lagrangian = reduced_augmented_Lagrangian(A, x0_warmstart, y, target; regularization) - regularization * norm(y)^2
         @show regularization
+        @show k
         
         # We start with a dual gradient ascent step from x0 to get a plausible y0
         # dual gradient ascent.
         E, lambda = reduced_augmented_Lagrangian_minimizer(A, x0_warmstart, y, target; regularization)
         y .= y + (1/regularization) * ((A+E)*x0_warmstart - x0_warmstart*lambda)
-        @show y
 
         @show constraint_violation = norm((A+E)*x0_warmstart - x0_warmstart*lambda)
         @show original_function_value = constrained_optimal_value(A, x0_warmstart, target)
+        @show heuristic_value = NearestUnstableMatrix.heuristic_zeros(A, x0_warmstart, target)[2]
         
-
         f(M, v) = reduced_augmented_Lagrangian(A, v, y, target; regularization)
-
-        # function g(M, v)
-        #     gr = realgradient(x -> f(M, x), v)
-        #     return project(M, v, gr)
-        # end
 
         function g_zygote(M, v)
             gr = first(realgradient_zygote(x -> f(M, x), v))
             return project(M, v, gr)
         end
-
+    
         x = optimizer(M, f, g_zygote, x0_warmstart; kwargs...)
 
         x0_warmstart .= x
-        regularization = regularization / 2.
+        regularization = regularization * regularization_damping
     end
     @show original_function_value = constrained_optimal_value(A, x0_warmstart, target)
+    @show heuristic_value = NearestUnstableMatrix.heuristic_zeros(A, x0_warmstart, target)[2]
     return x0_warmstart
 end
 
