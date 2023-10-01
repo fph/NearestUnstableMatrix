@@ -9,7 +9,7 @@ using ChainRulesCore: ProjectTo, @not_implemented, @thunk
 
 export constrained_minimizer, constrained_optimal_value, 
     realgradient, realgradient_zygote, #realgradient_reverse, make_tape,
-    Disc, OutsideDisc, Hurwitz, Schur, Nonsingular, LeftHalfPlane,
+    Disc, OutsideDisc, Hurwitz, Schur, Nonsingular, LeftOf,
     nearest_eigenvector_outside,
     MatrixWrapper
     
@@ -30,29 +30,29 @@ function ChainRulesCore.rrule(P::MatrixWrapper, w::AbstractVecOrMat)
 end
 
 abstract type Region end
-struct Disc <: Region
-    r::Float64
+struct Disc{r} <: Region
 end
-struct OutsideDisc <: Region
-    r::Float64
+Disc(r) = Disc{r}()
+struct OutsideDisc{r} <: Region
 end
-const Schur = Disc(1.0)
-const Nonsingular = OutsideDisc(0.0)
-struct LeftHalfPlane <: Region
-    re::Float64
+OutsideDisc(r) = OutsideDisc{r}()
+const Schur = Disc{1.0}
+const Nonsingular = OutsideDisc{0.0}
+struct LeftOf{r} <: Region
 end
-const Hurwitz = LeftHalfPlane(0.0)
+LeftOf(r) = LeftOf{r}()
+const Hurwitz = LeftOf{0.0}
 
-function project_outside(d::Disc, lambda)
+function project_outside(d::Disc{r}, lambda) where r
     a = abs(lambda)
-    return ifelse(a < d.r, lambda/a*d.r, lambda)
+    return ifelse(a < r, lambda/a*r, lambda)
 end
-function project_outside(d::OutsideDisc, lambda)
+function project_outside(d::OutsideDisc{r}, lambda) where r
     a = abs(lambda)
-    return ifelse(a > d.r, lambda/a*d.r, lambda)
+    return ifelse(a > r, lambda/a*r, lambda)
 end
-function project_outside(l::LeftHalfPlane, lambda)
-    return ifelse(real(lambda)<l.re, lambda-real(lambda)+l.re, lambda)
+function project_outside(l::LeftOf{r}, lambda) where r
+    return ifelse(real(lambda)<r, lambda-real(lambda)+r, lambda)
 end
 
 nantozero(x) = isnan(x) ? zero(x) : x
@@ -64,11 +64,9 @@ sum_ignoring_nans(x) = sum(nantozero, x)
 
 Computes the optimal projected eigenvalue lambda for a given problem
 """
+lambda_opt(Av, v, target::Nonsingular, m2) = zero(eltype(v))
 function lambda_opt(Av, v, target::Region, m2)
     local lambda::eltype(v)
-    if isa(target, OutsideDisc) && iszero(target.r)  # hardcoded NonSingular TODO: switch to a different type for it
-        return zero(eltype(v))
-    end
     if any(v[m2 .== 0]  .!= 0)
         @info "special zero case encountered"
         # special case: the only feasible solution is lambda == 0
@@ -248,6 +246,7 @@ function penalty_method(target, A, x0;
     for k = 1:iterations
         E, lambda = constrained_minimizer(A, x0_warmstart, target; regularization)
         @show original_function_value = constrained_optimal_value(A, x0_warmstart, target)
+        @show heuristic_value = NearestUnstableMatrix.heuristic_zeros(A, x0_warmstart, target)
         @show constraint_violation = norm((A+E)*x0_warmstart - x0_warmstart*lambda)
         @show regularization
         @show k
