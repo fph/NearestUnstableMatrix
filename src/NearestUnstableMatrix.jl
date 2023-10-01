@@ -16,7 +16,9 @@ export constrained_minimizer, constrained_optimal_value,
 """
     Custom type to wrap matrix multiplication, to work around an (apparent)
     bug with Zygote and constant sparse booleans.
-    Also, this ends up being faster than the custom sparse A*v in Zygote, so we switch to it for all our matrix products
+    Also, this ends up being faster than the custom sparse A*v in Zygote,
+    because it does not compute the pullback wrt A, 
+    so we switch to it for all our matrix products
 """
 struct MatrixWrapper{T<:AbstractMatrix}
     P::T
