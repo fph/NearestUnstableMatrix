@@ -23,7 +23,7 @@ end
     @test E ≈ [-1.32 -1.76; -3 -4]
     @test lambda == 0
     @test constrained_optimal_value(A, v, target) ≈ norm(E)^2
-    
+    @test NearestUnstableMatrix.constrained_optimal_value_Euclidean_gradient_zygote(A, v, target) ≈ NearestUnstableMatrix.constrained_optimal_value_Euclidean_gradient_analytic(A, v, target)
     # Hurwitz
 
     Random.seed!(0)

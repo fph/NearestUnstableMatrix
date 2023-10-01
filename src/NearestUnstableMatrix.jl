@@ -95,23 +95,32 @@ is chosen (outside the target or on its border) to minimize `constrained_optimal
 """
 function constrained_optimal_value(A, v, target, P=(A.!=0); regularization=0.0)
     Av = MatrixWrapper(A)(v)  # Av = A*v
-    m2 = MatrixWrapper(P)(abs2.(v)) .+ regularization^2
+    m2 = MatrixWrapper(P)(abs2.(v)) .+ regularization
     lambda = lambda_opt(Av, v, target, m2)
     z = v * lambda - Av
     optval = sum_ignoring_nans(abs2.(z) ./ m2)
     return optval
 end
 
-function constrained_optimal_value_Euclidean_gradient(A, v, target, P=(A.!=0); regularization=0.0)
+function constrained_optimal_value_Euclidean_gradient_zygote(A, v, target, P=(A.!=0); regularization=0.0)
     return first(realgradient_zygote(x -> constrained_optimal_value(A, x, target, P; regularization), v))
 end
+
+function constrained_optimal_value_Euclidean_gradient_analytic(A, v, target::Nonsingular, P=(A.!=0); regularization=0.0)
+    m2 = MatrixWrapper(P)(abs2.(v)) .+ regularization
+    n = (A*v) ./ m2
+    grad = 2(A'*n - (P' * abs2.(n)) .* v)
+    return grad
+end
+
+
 
 """
 Returns w such that constrained_optimal_value = norm(w)^2, for use in Levenberg-Marquardt-type algorithms
 """
 function constrained_optimal_value_LM(A, v, target, P=(A.!=0); regularization=0.0)
     Av = MatrixWrapper(A)(v)  # Av = A*v
-    m2 = MatrixWrapper(P)(abs2.(v)) .+ regularization^2
+    m2 = MatrixWrapper(P)(abs2.(v)) .+ regularization
     lambda = lambda_opt(Av, v, target, m2)
     w = v * lambda
     z = w - Av
@@ -126,7 +135,7 @@ Computes the argmin corresponding to `constrained_optimal_value`
 """
 function constrained_minimizer(A, v, target, P=(A.!=0); regularization=0.0)
     Av = MatrixWrapper(A)(v)  # Av = A*v
-    m2 = MatrixWrapper(P)(abs2.(v)) .+ regularization^2
+    m2 = MatrixWrapper(P)(abs2.(v)) .+ regularization
     lambda = lambda_opt(Av, v, target, m2)
     w = v * lambda
     z = w - Av
@@ -139,7 +148,7 @@ end
 """
 function reduced_augmented_Lagrangian(A, v, y, target, P=(A.!=0); regularization=0.0)
     Av_mod = MatrixWrapper(A)(v) + regularization*y
-    m2 = MatrixWrapper(P)(abs2.(v)) .+ regularization^2
+    m2 = MatrixWrapper(P)(abs2.(v)) .+ regularization
     lambda = lambda_opt(Av_mod, v, target, m2)
     w = v * lambda
     z = w - Av_mod
@@ -149,7 +158,7 @@ end
 
 function reduced_augmented_Lagrangian_minimizer(A, v, y, target, P=(A.!=0); regularization=0.0)
     Av_mod = MatrixWrapper(A)(v) + regularization*y
-    m2 = MatrixWrapper(P)(abs2.(v)) .+ regularization^2
+    m2 = MatrixWrapper(P)(abs2.(v)) .+ regularization
     lambda = lambda_opt(Av_mod, v, target, m2)
     w = v * lambda
     z = w - Av_mod
