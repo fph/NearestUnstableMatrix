@@ -4,7 +4,7 @@ using Random
 using LinearAlgebra
 using SparseArrays
 
-using NearestUnstableMatrix: Schur, project_outside
+using NearestUnstableMatrix: Schur, project_outside, compute_m2inv
 
 @testset "project_outside" begin
     @test project_outside(Disc(2.3), 1) == 2.3
@@ -14,6 +14,13 @@ using NearestUnstableMatrix: Schur, project_outside
     @test project_outside(LeftOf(2.3), 5+5im) == 5 + 5im
 end
 
+@testset "compute_m2inv" begin
+    P = [0 1; 1 0]
+    v = [2; 0]
+    @test isequal(compute_m2inv(P, v, 1.0), [1.0; 0.2])
+    @test isequal(compute_m2inv(P, v, 0.0), [0.0; 0.25])
+    
+end
 
 @testset "NearestUnstableMatrix.jl" begin
     A = [1. 2; 3 4]

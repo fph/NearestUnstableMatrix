@@ -10,8 +10,8 @@ using ChainRulesCore: ProjectTo, @not_implemented, @thunk
 export constrained_minimizer, constrained_optimal_value, 
     realgradient, realgradient_zygote, #realgradient_reverse, make_tape,
     Disc, OutsideDisc, Hurwitz, Schur, Nonsingular, LeftOf,
-    nearest_eigenvector_outside,
-    MatrixWrapper
+    nearest_eigenvector_outside, heuristic_zeros,
+    MatrixWrapper, lambda_opt
     
 """
     Custom type to wrap matrix multiplication, to work around an (apparent)
@@ -57,31 +57,36 @@ function project_outside(l::LeftOf{r}, lambda) where r
     return ifelse(real(lambda)<r, lambda-real(lambda)+r, lambda)
 end
 
-nantozero(x) = isnan(x) ? zero(x) : x
-sum_ignoring_nans(x) = sum(nantozero, x)
-
+inftozero(x) = ifelse(isinf(x), zero(x), x)
 
 """
-    lambda_opt(Av, v, target, m2)
+    m2inv = compute_m2inv(v, regularization)
+Computes the inverse of the weight vector, m2inv[i] = 1 / (||d_i||^2 + epsilon),
+where d_i is the vector with d_i=1 iff A[i,j]≠0 and 0 otherwise.
+
+Moreover, adjusts the vector such that 1/0=Inf is replaced by 0, to avoid NaNs in further computations.
+"""
+function compute_m2inv(P, v, regularization; warn=true)
+    m2inv = 1 ./ (MatrixWrapper(P)(abs2.(v)) .+ regularization)
+    if regularization == 0.
+        replace!(inftozero, m2inv)
+        if warn && any(v[m2inv .== 0]  .!= 0)
+            @info "Unfeasible problem, you will probably need to set lambda = 0"
+        end
+    end 
+    return m2inv
+end
+
+"""
+    lambda_opt(Av, v, target, m2inv)
 
 Computes the optimal projected eigenvalue lambda for a given problem
 """
-lambda_opt(Av, v, target::Nonsingular, m2) = zero(eltype(v))
-function lambda_opt(Av, v, target::Region, m2)
-    local lambda::eltype(v)
-    if any(v[m2 .== 0]  .!= 0)
-        @info "special zero case encountered"
-        # special case: the only feasible solution is lambda == 0
-        if project_outside(target, 0.) != 0.
-            error("There is no solution")
-        else
-            lambda = zero(eltype(v))
-        end
-    else
-        norma = sum_ignoring_nans(abs2.(v) ./ m2)
-        lambda0 = sum_ignoring_nans((conj.(v)) .* (Av ./ m2)) / norma
-        lambda = project_outside(target, lambda0)
-    end
+lambda_opt(Av, v, target::Nonsingular, m2inv) = zero(eltype(v))
+function lambda_opt(Av, v, target::Region, m2inv)
+    denom = sum(abs2.(v) .* m2inv)
+    numer = sum((conj.(v)) .* (Av .* m2inv))
+    lambda = project_outside(target, numer / denom)
     return lambda
 end
 
@@ -95,10 +100,10 @@ is chosen (outside the target or on its border) to minimize `constrained_optimal
 """
 function constrained_optimal_value(A, v, target, P=(A.!=0); regularization=0.0)
     Av = MatrixWrapper(A)(v)  # Av = A*v
-    m2 = MatrixWrapper(P)(abs2.(v)) .+ regularization
-    lambda = lambda_opt(Av, v, target, m2)
+    m2inv = compute_m2inv(P, v, regularization)
+    lambda = lambda_opt(Av, v, target, m2inv)
     z = v * lambda - Av
-    optval = sum_ignoring_nans(abs2.(z) ./ m2)
+    optval = sum(abs2.(z) .* m2inv)
     return optval
 end
 
@@ -107,8 +112,8 @@ function constrained_optimal_value_Euclidean_gradient_zygote(A, v, target, P=(A.
 end
 
 function constrained_optimal_value_Euclidean_gradient_analytic(A, v, target::Nonsingular, P=(A.!=0); regularization=0.0)
-    m2 = MatrixWrapper(P)(abs2.(v)) .+ regularization
-    n = (A*v) ./ m2
+    m2inv = compute_m2inv(P, v, regularization)
+    n = (A*v) .* m2inv
     grad = 2(A'*n - (P' * abs2.(n)) .* v)
     return grad
 end
@@ -119,11 +124,11 @@ Returns w such that constrained_optimal_value = norm(w)^2, for use in Levenberg-
 """
 function constrained_optimal_value_LM(A, v, target, P=(A.!=0); regularization=0.0)
     Av = MatrixWrapper(A)(v)  # Av = A*v
-    m2 = MatrixWrapper(P)(abs2.(v)) .+ regularization
-    lambda = lambda_opt(Av, v, target, m2)
+    m2inv = compute_m2inv(P, v, regularization)
+    lambda = lambda_opt(Av, v, target, m2inv)
     w = v * lambda
     z = w - Av
-    fval = z ./ sqrt.(m2)
+    fval = z .* sqrt.(m2inv)
     return fval
 end
 
@@ -134,11 +139,12 @@ Computes the argmin corresponding to `constrained_optimal_value`
 """
 function constrained_minimizer(A, v, target, P=(A.!=0); regularization=0.0)
     Av = MatrixWrapper(A)(v)  # Av = A*v
-    m2 = MatrixWrapper(P)(abs2.(v)) .+ regularization
-    lambda = lambda_opt(Av, v, target, m2)
-    w = v * lambda
-    z = w - Av
-    E = (z ./ m2) .* (v' .* P)  # the middle .* broadcasts column * row
+    m2inv = compute_m2inv(P, v, regularization)
+    lambda = lambda_opt(Av, v, target, m2inv)
+    z = v * lambda - Av
+    t = z .* m2inv
+    t[isnan.(t)] .= 0.
+    E = t .* (v' .* P)  # the middle .* broadcasts column * row
     return E, lambda
 end
 
@@ -147,21 +153,21 @@ end
 """
 function reduced_augmented_Lagrangian(A, v, y, target, P=(A.!=0); regularization=0.0)
     Av_mod = MatrixWrapper(A)(v) + regularization*y
-    m2 = MatrixWrapper(P)(abs2.(v)) .+ regularization
-    lambda = lambda_opt(Av_mod, v, target, m2)
+    m2inv = compute_m2inv(P, v, regularization)
+    lambda = lambda_opt(Av, v, target, m2inv)
     w = v * lambda
     z = w - Av_mod
-    optval = sum(abs2.(z) ./ m2)
+    optval = sum(abs2.(z) .* m2inv)
     return optval
 end
 
 function reduced_augmented_Lagrangian_minimizer(A, v, y, target, P=(A.!=0); regularization=0.0)
     Av_mod = MatrixWrapper(A)(v) + regularization*y
-    m2 = MatrixWrapper(P)(abs2.(v)) .+ regularization
-    lambda = lambda_opt(Av_mod, v, target, m2)
+    m2inv = compute_m2inv(P, v, regularization)
+    lambda = lambda_opt(Av, v, target, m2inv)
     w = v * lambda
     z = w - Av_mod
-    E = (z ./ m2) .* (v' .* P)  # the middle .* broadcasts column * row
+    E = (z .* m2inv) .* (v' .* P)  # the middle .* broadcasts column * row
     return E, lambda
 end
 
@@ -320,7 +326,39 @@ function augmented_Lagrangian_method(target, A, x0; optimizer=Manopt.trust_regio
     return x0_warmstart
 end
 
+"""
+    v = fix_unfeasibility!(A, v, target; P=(A.!=0))
 
+Makes sure that the least-squares problem is solvable, i.e., that m2[i] == 0 => v[i] = 0.,
+by inserting more zeros in v. This function is only needed if lambda != 0, otherwise the problem
+is always solvable.
+"""
+function fix_unfeasibility!(A, v, target; P=(A.!=0))
+    while(true)
+        m2inv = compute_m2inv(P, v, regularization; warn=false)
+        to_zero = (m2inv .== 0) .& (v .!= 0)
+        if !any(to_zero)
+            break
+        end
+        v[to_zero] .= 0.
+    end
+end
+
+"""
+    v = insert_zero_heuristic!(A, v, target; P=(A.!=0))
+
+    Modifies v to insert zero values instead of small entries, hoping to reduce the objective function (but not guaranteed)
+"""
+function insert_zero_heuristic!(A, v, target; P=(A.!=0))
+    Av = MatrixWrapper(A)(v)
+    m2inv = compute_m2inv(P, v, 0.)
+    lambda = lambda_opt(Av, v, target, m2inv)
+    z = v * lambda - Av
+    lstsq_smallness = m2 + abs2.(z)
+    _, i = findmin(x -> x==0 ? Inf : x,  lstsq_smallness)
+    v[P[i,:] .!= 0.] .= 0.
+    fix_unfeasibility!(A, v, target)
+end
 """
     v, fval = heuristic_zeros(A, v_, target; P=(A.!=0))
 
@@ -332,10 +370,8 @@ function heuristic_zeros(A, v_, target; P=(A.!=0))
     bestval = constrained_optimal_value(A, v, target)
     bestvec = copy(v)
     for k = 1:length(v)
-        m2 = MatrixWrapper(P)(abs2.(v))
-        val, i = findmin(x -> x==0 ? Inf : x,  m2)
-        v[A[i,:] .!= 0.] .= 0.
-        if all(v .== 0)
+        insert_zero_heuristic!(A, v, target; P)
+        if iszero(v)
             break
         end
         curval = constrained_optimal_value(A, v, target)
