@@ -69,7 +69,7 @@ Moreover, adjusts the vector such that 1/0=Inf is replaced by 0, to avoid NaNs i
 function compute_m2inv(P, v, regularization; warn=true)
     m2inv = 1 ./ (MatrixWrapper(P)(abs2.(v)) .+ regularization)
     if regularization == 0.
-        replace!(inftozero, m2inv)
+        m2inv = inftozero.(m2inv)
         if warn && any(v[m2inv .== 0]  .!= 0)
             @info "Unfeasible problem, you will probably need to set lambda = 0"
         end
@@ -154,7 +154,7 @@ end
 function reduced_augmented_Lagrangian(A, v, y, target, P=(A.!=0); regularization=0.0)
     Av_mod = MatrixWrapper(A)(v) + regularization*y
     m2inv = compute_m2inv(P, v, regularization)
-    lambda = lambda_opt(Av, v, target, m2inv)
+    lambda = lambda_opt(Av_mod, v, target, m2inv)
     w = v * lambda
     z = w - Av_mod
     optval = sum(abs2.(z) .* m2inv)
@@ -164,12 +164,24 @@ end
 function reduced_augmented_Lagrangian_minimizer(A, v, y, target, P=(A.!=0); regularization=0.0)
     Av_mod = MatrixWrapper(A)(v) + regularization*y
     m2inv = compute_m2inv(P, v, regularization)
-    lambda = lambda_opt(Av, v, target, m2inv)
+    lambda = lambda_opt(Av_mod, v, target, m2inv)
     w = v * lambda
     z = w - Av_mod
     E = (z .* m2inv) .* (v' .* P)  # the middle .* broadcasts column * row
     return E, lambda
 end
+
+function reduced_augmented_Lagrangian_Euclidean_gradient_zygote(A, v, y, target, P=(A.!=0); regularization=0.0)
+    return first(realgradient_zygote(x -> reduced_augmented_Lagrangian(A, x, y, target, P; regularization), v))
+end
+
+function reduced_augmented_Lagrangian_Euclidean_gradient_analytic(A, v, y, target::Nonsingular, P=(A.!=0); regularization=0.0)
+    m2inv = compute_m2inv(P, v, regularization)
+    n = (A*v + regularization * y) .* m2inv
+    grad = 2(A'*n - (P' * abs2.(n)) .* v)
+    return grad
+end
+
 
 """
     `g = realgradient(f, cv)`
@@ -285,6 +297,7 @@ end
 
 
 function augmented_Lagrangian_method(target, A, x0; optimizer=Manopt.trust_regions,
+                                                    gradient=reduced_augmented_Lagrangian_Euclidean_gradient_zygote,
                                                     iterations=30,
                                                     starting_regularization=1., 
                                                     regularization_damping = 0.75,
@@ -312,7 +325,7 @@ function augmented_Lagrangian_method(target, A, x0; optimizer=Manopt.trust_regio
         f(M, v) = reduced_augmented_Lagrangian(A, v, y, target; regularization)
 
         function g_zygote(M, v)
-            gr = first(realgradient_zygote(x -> f(M, x), v))
+            gr = gradient(A, v, y, target; regularization)
             return project(M, v, gr)
         end
     
@@ -321,6 +334,8 @@ function augmented_Lagrangian_method(target, A, x0; optimizer=Manopt.trust_regio
         x0_warmstart .= x
         regularization = regularization * regularization_damping
     end
+    E, lambda = reduced_augmented_Lagrangian_minimizer(A, x0_warmstart, y, target; regularization)
+    @show constraint_violation = norm((A+E)*x0_warmstart - x0_warmstart*lambda)
     @show original_function_value = constrained_optimal_value(A, x0_warmstart, target)
     @show heuristic_value = NearestUnstableMatrix.heuristic_zeros(A, x0_warmstart, target)[2]
     return x0_warmstart
@@ -335,7 +350,7 @@ is always solvable.
 """
 function fix_unfeasibility!(A, v, target; P=(A.!=0))
     while(true)
-        m2inv = compute_m2inv(P, v, regularization; warn=false)
+        m2inv = compute_m2inv(P, v, 0.; warn=false)
         to_zero = (m2inv .== 0) .& (v .!= 0)
         if !any(to_zero)
             break
@@ -349,15 +364,22 @@ end
 
     Modifies v to insert zero values instead of small entries, hoping to reduce the objective function (but not guaranteed)
 """
-function insert_zero_heuristic!(A, v, target; P=(A.!=0))
+function insert_zero_heuristic!(A, v, target; P=(A.!=0), force_lambda_zero=false)
     Av = MatrixWrapper(A)(v)
-    m2inv = compute_m2inv(P, v, 0.)
-    lambda = lambda_opt(Av, v, target, m2inv)
+    if force_lambda_zero
+        lambda = zero(eltype(v))
+    else
+        m2inv = compute_m2inv(P, v, 0.; warn=false)
+        lambda = lambda_opt(Av, v, target, m2inv)
+    end
     z = v * lambda - Av
+    m2 = MatrixWrapper(P)(abs2.(v))
     lstsq_smallness = m2 + abs2.(z)
     _, i = findmin(x -> x==0 ? Inf : x,  lstsq_smallness)
     v[P[i,:] .!= 0.] .= 0.
-    fix_unfeasibility!(A, v, target)
+    if !force_lambda_zero
+        fix_unfeasibility!(A, v, target)
+    end
 end
 """
     v, fval = heuristic_zeros(A, v_, target; P=(A.!=0))
@@ -365,12 +387,12 @@ end
     Tries to replace with zeros some entries of v_ (those corresponding to small entries of m2), to get a lower 
     value fval for constrained_optimal_value.
 """
-function heuristic_zeros(A, v_, target; P=(A.!=0))
+function heuristic_zeros(A, v_, target; P=(A.!=0), force_lambda_zero=false)
     v = copy(v_)
     bestval = constrained_optimal_value(A, v, target)
     bestvec = copy(v)
     for k = 1:length(v)
-        insert_zero_heuristic!(A, v, target; P)
+        insert_zero_heuristic!(A, v, target; P, force_lambda_zero)
         if iszero(v)
             break
         end
