@@ -100,7 +100,7 @@ is chosen (outside the target or on its border) to minimize `constrained_optimal
 """
 function constrained_optimal_value(A, v, target, P=(A.!=0); regularization=0.0)
     Av = MatrixWrapper(A)(v)  # Av = A*v
-    m2inv = compute_m2inv(P, v, regularization)
+    m2inv = compute_m2inv(P, v, regularization; warn=!isa(target, Nonsingular))
     lambda = lambda_opt(Av, v, target, m2inv)
     z = v * lambda - Av
     optval = sum(abs2.(z) .* m2inv)
@@ -112,7 +112,7 @@ function constrained_optimal_value_Euclidean_gradient_zygote(A, v, target, P=(A.
 end
 
 function constrained_optimal_value_Euclidean_gradient_analytic(A, v, target::Nonsingular, P=(A.!=0); regularization=0.0)
-    m2inv = compute_m2inv(P, v, regularization)
+    m2inv = compute_m2inv(P, v, regularization; warn=!isa(target, Nonsingular))
     n = (A*v) .* m2inv
     grad = 2(A'*n - (P' * abs2.(n)) .* v)
     return grad
@@ -124,7 +124,7 @@ Returns w such that constrained_optimal_value = norm(w)^2, for use in Levenberg-
 """
 function constrained_optimal_value_LM(A, v, target, P=(A.!=0); regularization=0.0)
     Av = MatrixWrapper(A)(v)  # Av = A*v
-    m2inv = compute_m2inv(P, v, regularization)
+    m2inv = compute_m2inv(P, v, regularization; warn=!isa(target, Nonsingular))
     lambda = lambda_opt(Av, v, target, m2inv)
     w = v * lambda
     z = w - Av
@@ -139,11 +139,10 @@ Computes the argmin corresponding to `constrained_optimal_value`
 """
 function constrained_minimizer(A, v, target, P=(A.!=0); regularization=0.0)
     Av = MatrixWrapper(A)(v)  # Av = A*v
-    m2inv = compute_m2inv(P, v, regularization)
+    m2inv = compute_m2inv(P, v, regularization; warn=!isa(target, Nonsingular))
     lambda = lambda_opt(Av, v, target, m2inv)
     z = v * lambda - Av
     t = z .* m2inv
-    t[isnan.(t)] .= 0.
     E = t .* (v' .* P)  # the middle .* broadcasts column * row
     return E, lambda
 end
@@ -153,7 +152,7 @@ end
 """
 function reduced_augmented_Lagrangian(A, v, y, target, P=(A.!=0); regularization=0.0)
     Av_mod = MatrixWrapper(A)(v) + regularization*y
-    m2inv = compute_m2inv(P, v, regularization)
+    m2inv = compute_m2inv(P, v, regularization; warn=!isa(target, Nonsingular))
     lambda = lambda_opt(Av_mod, v, target, m2inv)
     w = v * lambda
     z = w - Av_mod
@@ -163,7 +162,7 @@ end
 
 function reduced_augmented_Lagrangian_minimizer(A, v, y, target, P=(A.!=0); regularization=0.0)
     Av_mod = MatrixWrapper(A)(v) + regularization*y
-    m2inv = compute_m2inv(P, v, regularization)
+    m2inv = compute_m2inv(P, v, regularization; warn=!isa(target, Nonsingular))
     lambda = lambda_opt(Av_mod, v, target, m2inv)
     w = v * lambda
     z = w - Av_mod
@@ -362,22 +361,25 @@ end
 """
     v = insert_zero_heuristic!(A, v, target; P=(A.!=0))
 
-    Modifies v to insert zero values instead of small entries, hoping to reduce the objective function (but not guaranteed)
+    Modifies v to insert zero values instead of certain entries, hoping to reduce the objective function (but not guaranteed).
+
+    By default, when altering a row i to be solvable, this will zero out not only the entries corresponding to P[i,:]
+    but also the diagonal entry v[i], which appears in lambda*I.
+    
+    This is skipped only if `isa(target, Nonsingular)`. Even if one is interested in certain other targets 
+    (e.g. Hurwitz) it might make sense to try the function with target==Nonsingular() to see if the objective value improves.
 """
-function insert_zero_heuristic!(A, v, target; P=(A.!=0), force_lambda_zero=false)
+function insert_zero_heuristic!(A, v, target; P=(A.!=0))
     Av = MatrixWrapper(A)(v)
-    if force_lambda_zero
-        lambda = zero(eltype(v))
-    else
-        m2inv = compute_m2inv(P, v, 0.; warn=false)
-        lambda = lambda_opt(Av, v, target, m2inv)
-    end
+    m2inv = compute_m2inv(P, v, 0.; warn=false)
+    lambda = lambda_opt(Av, v, target, m2inv)
+
     z = v * lambda - Av
     m2 = MatrixWrapper(P)(abs2.(v))
     lstsq_smallness = m2 + abs2.(z)
     _, i = findmin(x -> x==0 ? Inf : x,  lstsq_smallness)
     v[P[i,:] .!= 0.] .= 0.
-    if !force_lambda_zero
+    if !isa(target, Nonsingular)
         fix_unfeasibility!(A, v, target)
     end
 end
@@ -385,14 +387,14 @@ end
     v, fval = heuristic_zeros(A, v_, target; P=(A.!=0))
 
     Tries to replace with zeros some entries of v_ (those corresponding to small entries of m2), to get a lower 
-    value fval for constrained_optimal_value.
+    value fval for constrained_optimal_value. Keeps adding zeros iteratively.
 """
-function heuristic_zeros(A, v_, target; P=(A.!=0), force_lambda_zero=false)
+function heuristic_zeros(A, v_, target; P=(A.!=0))
     v = copy(v_)
     bestval = constrained_optimal_value(A, v, target)
     bestvec = copy(v)
     for k = 1:length(v)
-        insert_zero_heuristic!(A, v, target; P, force_lambda_zero)
+        insert_zero_heuristic!(A, v, target; P)
         if iszero(v)
             break
         end
