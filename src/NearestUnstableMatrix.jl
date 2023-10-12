@@ -154,8 +154,7 @@ function reduced_augmented_Lagrangian(A, v, y, target, P=(A.!=0); regularization
     Av_mod = MatrixWrapper(A)(v) + regularization*y
     m2inv = compute_m2inv(P, v, regularization; warn=!isa(target, Nonsingular))
     lambda = lambda_opt(Av_mod, v, target, m2inv)
-    w = v * lambda
-    z = w - Av_mod
+    z = v * lambda - Av_mod
     optval = sum(abs2.(z) .* m2inv)
     return optval
 end
@@ -164,8 +163,7 @@ function reduced_augmented_Lagrangian_minimizer(A, v, y, target, P=(A.!=0); regu
     Av_mod = MatrixWrapper(A)(v) + regularization*y
     m2inv = compute_m2inv(P, v, regularization; warn=!isa(target, Nonsingular))
     lambda = lambda_opt(Av_mod, v, target, m2inv)
-    w = v * lambda
-    z = w - Av_mod
+    z = v * lambda - Av_mod
     E = (z .* m2inv) .* (v' .* P)  # the middle .* broadcasts column * row
     return E, lambda
 end
@@ -256,10 +254,29 @@ function nearest_eigenvector_outside(target, A, x0; regularization=0.0,
     x = optimizer(M, f, g, x0; kwargs...)
 end
 
+using Optim
+
+function nearest_eigenvector_outside_optim(target, A, x0; regularization=0.0,
+    gradient=constrained_optimal_value_Euclidean_gradient_zygote,
+    kwargs...)
+
+    f(v) = constrained_optimal_value(A, v, target; regularization)
+    g(v) = gradient(A, v, target; regularization)
+    
+    res = optimize(f, g, x0, 
+                    inplace=false,
+                    Optim.LBFGS(manifold=Optim.Sphere(), m=20), 
+                    Optim.Options(iterations=1_000))
+    @show res
+    return res.minimizer
+end
+
+
+
 function penalty_method(target, A, x0; 
                         optimizer=Manopt.trust_regions, 
                         gradient=constrained_optimal_value_Euclidean_gradient_zygote,
-                        iterations=30, 
+                        outer_iterations=30, 
                         starting_regularization=1.,
                         regularization_damping = 0.75, kwargs...)
 
@@ -269,7 +286,7 @@ function penalty_method(target, A, x0;
     regularization = starting_regularization
     x0_warmstart = copy(x0)
 
-    for k = 1:iterations
+    for k = 1:outer_iterations
         E, lambda = constrained_minimizer(A, x0_warmstart, target; regularization)
         @show original_function_value = constrained_optimal_value(A, x0_warmstart, target)
         @show heuristic_value = NearestUnstableMatrix.heuristic_zeros(A, x0_warmstart, target)[2]
@@ -297,7 +314,7 @@ end
 
 function augmented_Lagrangian_method(target, A, x0; optimizer=Manopt.trust_regions,
                                                     gradient=reduced_augmented_Lagrangian_Euclidean_gradient_zygote,
-                                                    iterations=30,
+                                                    outer_iterations=30,
                                                     starting_regularization=1., 
                                                     regularization_damping = 0.75,
                                                     kwargs...)
@@ -307,7 +324,7 @@ function augmented_Lagrangian_method(target, A, x0; optimizer=Manopt.trust_regio
     y = zero(x0)  # this will be updated anyway
     regularization = starting_regularization
     x0_warmstart = copy(x0)
-    for k = 1:iterations
+    for k = 1:outer_iterations
         @show augmented_Lagrangian = reduced_augmented_Lagrangian(A, x0_warmstart, y, target; regularization) - regularization * norm(y)^2
         @show regularization
         @show k
@@ -339,6 +356,51 @@ function augmented_Lagrangian_method(target, A, x0; optimizer=Manopt.trust_regio
     @show heuristic_value = NearestUnstableMatrix.heuristic_zeros(A, x0_warmstart, target)[2]
     return x0_warmstart
 end
+
+
+function augmented_Lagrangian_method_optim(target, A, x0;
+        gradient=reduced_augmented_Lagrangian_Euclidean_gradient_zygote,
+        outer_iterations=30,
+        starting_regularization=1., 
+        regularization_damping = 0.75,
+        kwargs...)
+
+    y = zero(x0)  # this will be updated anyway
+    regularization = starting_regularization
+    x0_warmstart = copy(x0)
+    for k = 1:outer_iterations
+    @show augmented_Lagrangian = reduced_augmented_Lagrangian(A, x0_warmstart, y, target; regularization) - regularization * norm(y)^2
+    @show regularization
+    @show k
+
+    # We start with a dual gradient ascent step from x0 to get a plausible y0
+    # dual gradient ascent.
+    E, lambda = reduced_augmented_Lagrangian_minimizer(A, x0_warmstart, y, target; regularization)
+    y .= y + (1/regularization) * ((A+E)*x0_warmstart - x0_warmstart*lambda)
+
+    @show constraint_violation = norm((A+E)*x0_warmstart - x0_warmstart*lambda)
+    @show original_function_value = constrained_optimal_value(A, x0_warmstart, target)
+    @show heuristic_value = NearestUnstableMatrix.heuristic_zeros(A, x0_warmstart, target)[2]
+
+    f(v) = reduced_augmented_Lagrangian(A, v, y, target; regularization)
+    g(v) = gradient(A, v, y, target; regularization)
+    
+    res = optimize(f, g, x0, 
+                    inplace=false,
+                    Optim.LBFGS(manifold=Optim.Sphere(), m=20), 
+                    Optim.Options(; kwargs...))
+    @show res
+
+    x0_warmstart .= res.minimizer
+    regularization = regularization * regularization_damping
+    end
+    E, lambda = reduced_augmented_Lagrangian_minimizer(A, x0_warmstart, y, target; regularization)
+    @show constraint_violation = norm((A+E)*x0_warmstart - x0_warmstart*lambda)
+    @show original_function_value = constrained_optimal_value(A, x0_warmstart, target)
+    @show heuristic_value = NearestUnstableMatrix.heuristic_zeros(A, x0_warmstart, target)[2]
+    return x0_warmstart
+end
+
 
 """
     v = fix_unfeasibility!(A, v, target; P=(A.!=0))

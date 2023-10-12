@@ -9,27 +9,15 @@ A = A - 30 * I
 target = Nonsingular # nearest singular matrix
 # target = Hurwitz # nearest non-Hurwitz stable matrix
 
-n = size(A,1)
-f(v) = constrained_optimal_value(A, v, target)
-
-function g(v)
-    gr = realgradient(f, v)
-    return gr
-end
-
-# const tape = make_tape(x -> f(M, x), x0)
-# function g_rev(M, v)
-#     gr = realgradient_reverse(v, tape)
-#     return project(M, v, gr)
-# end
-
-function g_zygote(v)
-    gr = first(realgradient_zygote(f, v))
-    return gr
-end
-
-x0 = randn(ComplexF64, n)
-
-res = optimize(f, g_zygote, x0, Optim.LBFGS(manifold=Optim.Sphere()), Optim.Options(show_trace=true, iterations=10_000), inplace=false)
+x = NearestUnstableMatrix.augmented_Lagrangian_method_optim(target, A, x0, 
+                        starting_regularization=3., 
+                        outer_iterations=30, 
+                        regularization_damping=0.7,
+                        gradient=NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_analytic, 
+                        # Optim.jl options
+                        g_tol=1e-6, 
+                        iterations=10_000, 
+                        show_trace=true, 
+                        show_every=500)
 
 E = constrained_minimizer(A, x, target)
