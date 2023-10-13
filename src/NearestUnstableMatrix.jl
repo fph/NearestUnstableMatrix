@@ -347,6 +347,8 @@ function augmented_Lagrangian_method(target, A, x0; optimizer=Manopt.trust_regio
     
         x = optimizer(M, f, g_zygote, x0_warmstart; kwargs...)
 
+        x = x / norm(x) # to work around a possible bug in trust_regions
+
         x0_warmstart .= x
         regularization = regularization * regularization_damping
     end
