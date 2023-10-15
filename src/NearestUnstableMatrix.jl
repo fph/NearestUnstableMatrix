@@ -332,15 +332,14 @@ function augmented_Lagrangian_method(target, A, x0; optimizer=Manopt.trust_regio
         # We start with a dual gradient ascent step from x0 to get a plausible y0
         # dual gradient ascent.
         E, lambda = reduced_augmented_Lagrangian_minimizer(A, x0_warmstart, y, target; regularization)
-        # y .= y + (1/regularization) * ((A+E)*x0_warmstart - x0_warmstart*lambda)
-        # @show y
         P = A.!=0
         m2inv = compute_m2inv(P, x0_warmstart, regularization; warn=false)
-        # y2 = (A*x0_warmstart + regularization*y - x0_warmstart*lambda) .* m2inv        
-        # @show y2
-        # @show (y-y2) ./ y2
-        # y .= y2
-        y .= (A*x0_warmstart + regularization*y - x0_warmstart*lambda) .* m2inv
+        y2 = (A*x0_warmstart + regularization*y - x0_warmstart*lambda) .* m2inv
+        y .= y + (1/regularization) * ((A+E)*x0_warmstart - x0_warmstart*lambda)
+        @show norm(y-y2) / norm(y2)
+        @show norm(y)
+        @show norm(y2)
+        y .= y2
 
         @show constraint_violation = norm((A+E)*x0_warmstart - x0_warmstart*lambda)
         @show original_function_value = constrained_optimal_value(A, x0_warmstart, target)
