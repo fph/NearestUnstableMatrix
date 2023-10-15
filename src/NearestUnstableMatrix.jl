@@ -332,7 +332,15 @@ function augmented_Lagrangian_method(target, A, x0; optimizer=Manopt.trust_regio
         # We start with a dual gradient ascent step from x0 to get a plausible y0
         # dual gradient ascent.
         E, lambda = reduced_augmented_Lagrangian_minimizer(A, x0_warmstart, y, target; regularization)
-        y .= y + (1/regularization) * ((A+E)*x0_warmstart - x0_warmstart*lambda)
+        # y .= y + (1/regularization) * ((A+E)*x0_warmstart - x0_warmstart*lambda)
+        # @show y
+        P = A.!=0
+        m2inv = compute_m2inv(P, x0_warmstart, regularization; warn=false)
+        # y2 = (A*x0_warmstart + regularization*y - x0_warmstart*lambda) .* m2inv        
+        # @show y2
+        # @show (y-y2) ./ y2
+        # y .= y2
+        y .= (A*x0_warmstart + regularization*y - x0_warmstart*lambda) .* m2inv
 
         @show constraint_violation = norm((A+E)*x0_warmstart - x0_warmstart*lambda)
         @show original_function_value = constrained_optimal_value(A, x0_warmstart, target)
@@ -365,6 +373,7 @@ function augmented_Lagrangian_method_optim(target, A, x0;
         outer_iterations=30,
         starting_regularization=1., 
         regularization_damping = 0.75,
+        memory_parameter=20,
         kwargs...)
 
     y = zero(x0)  # this will be updated anyway
@@ -389,7 +398,7 @@ function augmented_Lagrangian_method_optim(target, A, x0;
     
     res = optimize(f, g, x0, 
                     inplace=false,
-                    Optim.LBFGS(manifold=Optim.Sphere(), m=20), 
+                    Optim.LBFGS(manifold=Optim.Sphere(), m=memory_parameter), 
                     Optim.Options(; kwargs...))
     @show res
 
