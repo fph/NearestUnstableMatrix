@@ -27,7 +27,7 @@ end
     # Simple Nonsingular() case
     A = [1. 2; 3 4]
     n = size(A, 1)
-    v = [3/5;4/5]
+    v = ComplexF64.([3/5;4/5])
     target = Nonsingular()
     E, lambda = constrained_minimizer(A, v, target)
     @test E ≈ [-1.32 -1.76; -3 -4]

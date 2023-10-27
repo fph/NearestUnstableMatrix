@@ -175,10 +175,10 @@ function reduced_augmented_Lagrangian_Euclidean_gradient_zygote(A, v, y, target,
 end
 
 function reduced_augmented_Lagrangian_Euclidean_gradient_analytic(A, v, y, target, P=(A.!=0); regularization=0.0)
-    Av = MatrixWrapper(A)(v)  # Av = A*v
+    Av_mod = MatrixWrapper(A)(v) + regularization*y
     m2inv = compute_m2inv(P, v, regularization; warn=!isa(target, Nonsingular))
-    lambda = lambda_opt(Av, v, target, m2inv)
-    nv = (Av - v*lambda + y*regularization) .* m2inv
+    lambda = lambda_opt(Av_mod, v, target, m2inv)
+    nv = (Av_mod - v*lambda) .* m2inv
     grad = 2(A'*nv - nv*lambda' - (P' * abs2.(nv)) .* v)
     return grad
 end
@@ -242,7 +242,7 @@ Additional keyword arguments are passed to the optimizer (for `debug`, `stopping
 """
 function nearest_eigenvector_outside(target, A, x0; regularization=0.0, 
                                                     optimizer=Manopt.trust_regions, 
-                                                    gradient=constrained_optimal_value_Euclidean_gradient_zygote,
+                                                    gradient=constrained_optimal_value_Euclidean_gradient_analytic,
                                                     kwargs...)
     n = size(A,1)
     M = Manifolds.Sphere(n-1, ℂ)
@@ -260,7 +260,7 @@ end
 using Optim
 
 function nearest_eigenvector_outside_optim(target, A, x0; regularization=0.0,
-    gradient=constrained_optimal_value_Euclidean_gradient_zygote,
+    gradient=constrained_optimal_value_Euclidean_gradient_analytic,
     kwargs...)
 
     f(v) = constrained_optimal_value(A, v, target; regularization)
@@ -278,7 +278,7 @@ end
 
 function penalty_method(target, A, x0; 
                         optimizer=Manopt.trust_regions, 
-                        gradient=constrained_optimal_value_Euclidean_gradient_zygote,
+                        gradient=constrained_optimal_value_Euclidean_gradient_analytic,
                         outer_iterations=30, 
                         starting_regularization=1.,
                         regularization_damping = 0.75, kwargs...)
@@ -316,7 +316,7 @@ end
 
 
 function augmented_Lagrangian_method!(target, A, x; optimizer=Manopt.quasi_Newton!,
-                                                    gradient=reduced_augmented_Lagrangian_Euclidean_gradient_zygote,
+                                                    gradient=reduced_augmented_Lagrangian_Euclidean_gradient_analytic,
                                                     outer_iterations=60,
                                                     starting_regularization=1., 
                                                     regularization_damping = 0.8,
@@ -361,7 +361,7 @@ function augmented_Lagrangian_method!(target, A, x; optimizer=Manopt.quasi_Newto
 end
 
 function augmented_Lagrangian_method_optim(target, A, x0;
-        gradient=reduced_augmented_Lagrangian_Euclidean_gradient_zygote,
+        gradient=reduced_augmented_Lagrangian_Euclidean_gradient_analytic,
         outer_iterations=30,
         starting_regularization=1., 
         regularization_damping = 0.75,
