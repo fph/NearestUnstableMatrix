@@ -153,7 +153,7 @@ end
                                           StopWhenGradientNormLess(10^(-6))))
       @test constrained_optimal_value(target, A, x) ≈ 2.2810193
 
-      x = NearestUnstableMatrix.augmented_Lagrangian_method_optim(target, A, x0, 
+      x = NearestUnstableMatrix.nearest_unstable_augmented_Lagrangian_method_optim(target, A, x0, 
       starting_regularization=3., 
       outer_iterations=30, 
       regularization_damping=0.7,
@@ -165,4 +165,3 @@ end
       @test constrained_optimal_value(target, A, x) ≈ 2.2810193
 
 end
-
