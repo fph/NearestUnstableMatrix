@@ -6,8 +6,7 @@ using NearestUnstableMatrix
 
 A = reshape(collect(1:16), (4,4)); A[1,3:4] .= 0; A[2,4] = 0; A[3,1] = 0; A[4, 1:2] .= 0; A = Float64.(A)
 A = A - 30 * I
-target = Nonsingular # nearest singular matrix
-# target = Hurwitz # nearest non-Hurwitz stable matrix
+target = Singular()
 
 x = NearestUnstableMatrix.augmented_Lagrangian_method_optim(target, A, x0, 
                         starting_regularization=3., 
@@ -20,4 +19,4 @@ x = NearestUnstableMatrix.augmented_Lagrangian_method_optim(target, A, x0,
                         show_trace=true, 
                         show_every=500)
 
-E = constrained_minimizer(A, x, target)
+E, lambda = constrained_minimizer(target, A, x)

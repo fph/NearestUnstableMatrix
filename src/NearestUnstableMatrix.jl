@@ -2,16 +2,18 @@ module NearestUnstableMatrix
 
 using LinearAlgebra
 using ForwardDiff
+using SparseArrays
 
-import ChainRulesCore
+using ChainRulesCore
 using ChainRulesCore: ProjectTo, @not_implemented, @thunk
-
+import Manifolds: project
 
 export constrained_minimizer, constrained_optimal_value, 
-    realgradient, realgradient_zygote, #realgradient_reverse, make_tape,
-    Disc, OutsideDisc, Hurwitz, Schur, Nonsingular, LeftOf,
-    nearest_eigenvector_outside, heuristic_zeros,
-    MatrixWrapper, lambda_opt
+    realgradient, realgradient_zygote,
+    InsideDisc, OutsideDisc, NonHurwitz, NonSchur,  RightOf, Singular,
+    nearest_unstable, heuristic_zeros,
+    MatrixWrapper, lambda_opt,
+    project
     
 """
     Custom type to wrap matrix multiplication, to work around an (apparent)
@@ -32,28 +34,28 @@ function ChainRulesCore.rrule(P::MatrixWrapper, w::AbstractVecOrMat)
 end
 
 abstract type Region end
-struct Disc{r} <: Region
+struct InsideDisc{r} <: Region
 end
-Disc(r) = Disc{r}()
+InsideDisc(r) = InsideDisc{r}()
 struct OutsideDisc{r} <: Region
 end
 OutsideDisc(r) = OutsideDisc{r}()
-const Schur = Disc{1.0}
-const Nonsingular = OutsideDisc{0.0}
-struct LeftOf{r} <: Region
+const NonSchur = OutsideDisc{1.0}
+const Singular = OutsideDisc{0.0}
+struct RightOf{r} <: Region
 end
-LeftOf(r) = LeftOf{r}()
-const Hurwitz = LeftOf{0.0}
+RightOf(r) = RightOf{r}()
+const NonHurwitz = RightOf{0.0}
 
-function project_outside(d::Disc{r}, lambda) where r
+function project(d::OutsideDisc{r}, lambda) where r
     a = abs(lambda)
     return ifelse(a < r, lambda/a*r, lambda)
 end
-function project_outside(d::OutsideDisc{r}, lambda) where r
+function project(d::InsideDisc{r}, lambda) where r
     a = abs(lambda)
     return ifelse(a > r, lambda/a*r, lambda)
 end
-function project_outside(l::LeftOf{r}, lambda) where r
+function project(l::RightOf{r}, lambda) where r
     return ifelse(real(lambda)<r, lambda-real(lambda)+r, lambda)
 end
 
@@ -78,27 +80,27 @@ function compute_m2inv(P, v, regularization; warn=true)
 end
 
 """
-    lambda_opt(Av, v, target, m2inv)
+    lambda_opt(target, Av, v, m2inv)
 
 Computes the optimal projected eigenvalue lambda for a given problem
 """
-lambda_opt(Av, v, target::Nonsingular, m2inv) = zero(eltype(v))
-function lambda_opt(Av, v, target::Region, m2inv)
+lambda_opt(target::Singular, Av, v, m2inv) = zero(eltype(v))
+function lambda_opt(target::Region, Av, v, m2inv)
     denom = sum(abs2.(v) .* m2inv)
     numer = sum((conj.(v)) .* (Av .* m2inv))
-    lambda = project_outside(target, numer / denom)
+    lambda = project(target, numer / denom)
     return lambda
 end
 
 """
-    `E, lambda = constrained_minimizer(A, v, target, P= (A.!=0))`
+    `E, lambda = constrained_minimizer(target, A, v, P= (A.!=0))`
 
 Computes the argmin corresponding to `constrained_optimal_value`
 """
-function constrained_minimizer(A, v, target, P=(A.!=0); regularization=0.0)
+function constrained_minimizer(target, A, v, P=(A.!=0); regularization=0.0)
     Av = MatrixWrapper(A)(v)  # Av = A*v
-    m2inv = compute_m2inv(P, v, regularization; warn=!isa(target, Nonsingular))
-    lambda = lambda_opt(Av, v, target, m2inv)
+    m2inv = compute_m2inv(P, v, regularization; warn=!isa(target, Singular))
+    lambda = lambda_opt(target, Av, v, m2inv)
     z = v * lambda - Av
     t = z .* m2inv
     E = t .* (v' .* P)  # the middle .* broadcasts column * row
@@ -106,30 +108,29 @@ function constrained_minimizer(A, v, target, P=(A.!=0); regularization=0.0)
 end
 
 """
-    `optval = constrained_optimal_value(A, v, target, P=(A.!=0))`
+    `optval = constrained_optimal_value(target, A, v, P=(A.!=0))`
 
-Computes optval = min ||E||^2 s.t. (A+E)v = w and the constraint that the sparsity pattern of E is P (boolean matrix)
+Computes optval = min ||E||^2 s.t. (A+E)v = v*λ and the constraint that the sparsity pattern of E is P (boolean matrix)
 
-If target is a vector, w=target. Else target can be :LHP, :Disc, :Nonsingular, and then w = v*λ, where λ
-is chosen (outside the target or on its border) to minimize `constrained_optimal_value(A, v, vλ)`
+λ is chosen (inside the target region or on its border) to minimize `constrained_optimal_value(A, v, λ)`
 """
-function constrained_optimal_value(A, v, target, P=(A.!=0); regularization=0.0)
+function constrained_optimal_value(target, A, v, P=(A.!=0); regularization=0.0)
     Av = MatrixWrapper(A)(v)  # Av = A*v
-    m2inv = compute_m2inv(P, v, regularization; warn=!isa(target, Nonsingular))
-    lambda = lambda_opt(Av, v, target, m2inv)
+    m2inv = compute_m2inv(P, v, regularization; warn=!isa(target, Singular))
+    lambda = lambda_opt(target, Av, v, m2inv)
     z = v * lambda - Av
     optval = sum(abs2.(z) .* m2inv)
     return optval
 end
 
-function constrained_optimal_value_Euclidean_gradient_zygote(A, v, target, P=(A.!=0); regularization=0.0)
-    return first(realgradient_zygote(x -> constrained_optimal_value(A, x, target, P; regularization), v))
+function constrained_optimal_value_Euclidean_gradient_zygote(target, A, v, P=(A.!=0); regularization=0.0)
+    return first(realgradient_zygote(x -> constrained_optimal_value(target, A, x, P; regularization), v))
 end
 
-function constrained_optimal_value_Euclidean_gradient_analytic(A, v, target, P=(A.!=0); regularization=0.0)
+function constrained_optimal_value_Euclidean_gradient_analytic(target, A, v, P=(A.!=0); regularization=0.0)
     Av = MatrixWrapper(A)(v)  # Av = A*v
-    m2inv = compute_m2inv(P, v, regularization; warn=!isa(target, Nonsingular))
-    lambda = lambda_opt(Av, v, target, m2inv)
+    m2inv = compute_m2inv(P, v, regularization; warn=!isa(target, Singular))
+    lambda = lambda_opt(target, Av, v, m2inv)
     nv = (Av - v*lambda) .* m2inv
     grad = 2(A'*nv - nv*lambda' - (P' * abs2.(nv)) .* v)
     return grad
@@ -139,10 +140,10 @@ end
 """
 Returns w such that constrained_optimal_value = norm(w)^2, for use in Levenberg-Marquardt-type algorithms
 """
-function constrained_optimal_value_LM(A, v, target, P=(A.!=0); regularization=0.0)
+function constrained_optimal_value_LM(target, A, v, P=(A.!=0); regularization=0.0)
     Av = MatrixWrapper(A)(v)  # Av = A*v
-    m2inv = compute_m2inv(P, v, regularization; warn=!isa(target, Nonsingular))
-    lambda = lambda_opt(Av, v, target, m2inv)
+    m2inv = compute_m2inv(P, v, regularization; warn=!isa(target, Singular))
+    lambda = lambda_opt(target, Av, v, m2inv)
     w = v * lambda
     z = w - Av
     fval = z .* sqrt.(m2inv)
@@ -152,32 +153,32 @@ end
 """
     Returns the augmented Lagrangian without the 1/reg*||y||^2 term, which is useless for minimization since it is constant
 """
-function reduced_augmented_Lagrangian(A, v, y, target, P=(A.!=0); regularization=0.0)
+function reduced_augmented_Lagrangian(target, A, v, y, P=(A.!=0); regularization=0.0)
     Av_mod = MatrixWrapper(A)(v) + regularization*y
-    m2inv = compute_m2inv(P, v, regularization; warn=!isa(target, Nonsingular))
-    lambda = lambda_opt(Av_mod, v, target, m2inv)
+    m2inv = compute_m2inv(P, v, regularization; warn=!isa(target, Singular))
+    lambda = lambda_opt(target, Av_mod, v, m2inv)
     z = v * lambda - Av_mod
     optval = sum(abs2.(z) .* m2inv)
     return optval
 end
 
-function reduced_augmented_Lagrangian_minimizer(A, v, y, target, P=(A.!=0); regularization=0.0)
+function reduced_augmented_Lagrangian_minimizer(target, A, v, y, P=(A.!=0); regularization=0.0)
     Av_mod = MatrixWrapper(A)(v) + regularization*y
-    m2inv = compute_m2inv(P, v, regularization; warn=!isa(target, Nonsingular))
-    lambda = lambda_opt(Av_mod, v, target, m2inv)
+    m2inv = compute_m2inv(P, v, regularization; warn=!isa(target, Singular))
+    lambda = lambda_opt(target, Av_mod, v, m2inv)
     z = v * lambda - Av_mod
     E = (z .* m2inv) .* (v' .* P)  # the middle .* broadcasts column * row
     return E, lambda
 end
 
-function reduced_augmented_Lagrangian_Euclidean_gradient_zygote(A, v, y, target, P=(A.!=0); regularization=0.0)
-    return first(realgradient_zygote(x -> reduced_augmented_Lagrangian(A, x, y, target, P; regularization), v))
+function reduced_augmented_Lagrangian_Euclidean_gradient_zygote(target, A, v, y, P=(A.!=0); regularization=0.0)
+    return first(realgradient_zygote(x -> reduced_augmented_Lagrangian(target, A, x, y, P; regularization), v))
 end
 
-function reduced_augmented_Lagrangian_Euclidean_gradient_analytic(A, v, y, target, P=(A.!=0); regularization=0.0)
+function reduced_augmented_Lagrangian_Euclidean_gradient_analytic(target, A, v, y, P=(A.!=0); regularization=0.0)
     Av_mod = MatrixWrapper(A)(v) + regularization*y
-    m2inv = compute_m2inv(P, v, regularization; warn=!isa(target, Nonsingular))
-    lambda = lambda_opt(Av_mod, v, target, m2inv)
+    m2inv = compute_m2inv(P, v, regularization; warn=!isa(target, Singular))
+    lambda = lambda_opt(target, Av_mod, v, m2inv)
     nv = (Av_mod - v*lambda) .* m2inv
     grad = 2(A'*nv - nv*lambda' - (P' * abs2.(nv)) .* v)
     return grad
@@ -216,41 +217,24 @@ function realhessian_zygote(f, cv)
     return H
 end
 
-
-# Alternative implementation using ReverseDiff.
-# Unfortunately it doesn't work as ReverseDiff does not like complex numbers even internally
-#
-# function make_tape(f, cv)
-#     n = length(cv)
-#     # actually it is enough to pass a vector of the right size, not the correct cv
-#     f_tape = ReverseDiff.GradientTape(x -> f(x[1:n] + 1im * x[n+1:end]), [real(cv); imag(cv)])
-#     compiled_tape = compile(f_tape)
-#     return compiled_tape
-# end
-# function realgradient_reverse(cv, tape)
-#     rv = [real(cv); imag(cv)]
-#     results = similar(rv)
-#     gradient!(results, tape, inputs)
-# end
-
 using Manifolds, Manopt
 """
-    nearest_eigenvector_outside(target, A, args...; optimizer=Manopt.trust_regions)
+    nearest_unstable(target, A, args...; optimizer=Manopt.trust_regions)
 
-Computes v such that (A+E)v = v*lambda, lambda is _outside_ the target region, and ||E||_F is minimal
+Computes v such that (A+E)v = v*lambda, lambda is inside the target region, and ||E||_F is minimal
 Additional keyword arguments are passed to the optimizer (for `debug`, `stopping_criterion`, etc.).
 """
-function nearest_eigenvector_outside(target, A, x0; regularization=0.0, 
+function nearest_unstable(target, A, x0; regularization=0.0, 
                                                     optimizer=Manopt.trust_regions, 
                                                     gradient=constrained_optimal_value_Euclidean_gradient_analytic,
                                                     kwargs...)
     n = size(A,1)
     M = Manifolds.Sphere(n-1, ℂ)
 
-    f(M, v) = constrained_optimal_value(A, v, target; regularization)
+    f(M, v) = constrained_optimal_value(target, A, v; regularization)
 
     function g(M, v)
-        gr = gradient(A, v, target; regularization)
+        gr = gradient(target, A, v; regularization)
         return project(M, v, gr)
     end
 
@@ -263,8 +247,8 @@ function nearest_eigenvector_outside_optim(target, A, x0; regularization=0.0,
     gradient=constrained_optimal_value_Euclidean_gradient_analytic,
     kwargs...)
 
-    f(v) = constrained_optimal_value(A, v, target; regularization)
-    g(v) = gradient(A, v, target; regularization)
+    f(v) = constrained_optimal_value(target, A, v; regularization)
+    g(v) = gradient(target, A, v; regularization)
     
     res = optimize(f, g, x0, 
                     inplace=false,
@@ -287,31 +271,31 @@ function penalty_method(target, A, x0;
     M = Manifolds.Sphere(n-1, ℂ)
 
     regularization = starting_regularization
-    x0_warmstart = copy(x0)
+    x = copy(x0)
 
     for k = 1:outer_iterations
-        E, lambda = constrained_minimizer(A, x0_warmstart, target; regularization)
-        @show original_function_value = constrained_optimal_value(A, x0_warmstart, target)
-        @show heuristic_value = NearestUnstableMatrix.heuristic_zeros(A, x0_warmstart, target)[2]
-        @show constraint_violation = norm((A+E)*x0_warmstart - x0_warmstart*lambda)
+        E, lambda = constrained_minimizer(target, A, x; regularization)
+        @show original_function_value = constrained_optimal_value(target, A, x)
+        @show heuristic_value = NearestUnstableMatrix.heuristic_zeros(target, A, x)[2]
+        @show constraint_violation = norm((A+E)*x - x*lambda)
         @show regularization
         @show k
 
-        f(M, v) = constrained_optimal_value(A, v, target; regularization)
+        f(M, v) = constrained_optimal_value(target, A, v; regularization)
 
         function g(M, v)
-            gr = gradient(A, v, target; regularization)
+            gr = gradient(target, A, v; regularization)
             return project(M, v, gr)
         end
     
-        x = optimizer(M, f, g, x0_warmstart; kwargs...)
+        x = optimizer(M, f, g, x; kwargs...)
 
-        x0_warmstart .= x
+        x .= x
         regularization = regularization * regularization_damping
     end
-    @show original_function_value = constrained_optimal_value(A, x0_warmstart, target)
-    @show heuristic_value = NearestUnstableMatrix.heuristic_zeros(A, x0_warmstart, target)[2]
-    return x0_warmstart
+    @show original_function_value = constrained_optimal_value(target, A, x)
+    @show heuristic_value = NearestUnstableMatrix.heuristic_zeros(target, A, x)[2]
+    return x
 end
 
 
@@ -328,35 +312,35 @@ function augmented_Lagrangian_method!(target, A, x; optimizer=Manopt.quasi_Newto
     regularization = starting_regularization
     P = A.!=0
     for k = 1:outer_iterations
-        @show augmented_Lagrangian = reduced_augmented_Lagrangian(A, x, y, target; regularization) - regularization * norm(y)^2
+        @show augmented_Lagrangian = reduced_augmented_Lagrangian(target, A, x, y; regularization) - regularization * norm(y)^2
         @show regularization
         @show k
         
         # We start with a dual gradient ascent step from x0 to get a plausible y0
         # dual gradient ascent.
-        E, lambda = reduced_augmented_Lagrangian_minimizer(A, x, y, target; regularization)
+        E, lambda = reduced_augmented_Lagrangian_minimizer(target, A, x, y; regularization)
         m2inv = compute_m2inv(P, x, regularization; warn=false)
         y .= (A*x + regularization*y - x*lambda) .* m2inv
 
         @show norm(y)
         @show constraint_violation = norm((A+E)*x - x*lambda)
-        @show original_function_value = constrained_optimal_value(A, x, target)
-        @show heuristic_value = NearestUnstableMatrix.heuristic_zeros(A, x, target)[2]
+        @show original_function_value = constrained_optimal_value(target, A, x)
+        @show heuristic_value = NearestUnstableMatrix.heuristic_zeros(target, A, x)[2]
         
-        f(M, v) = reduced_augmented_Lagrangian(A, v, y, target; regularization)
+        f(M, v) = reduced_augmented_Lagrangian(target, A, v, y; regularization)
 
         function g_zygote(M, v)
-            gr = gradient(A, v, y, target; regularization)
+            gr = gradient(target, A, v, y; regularization)
             return project(M, v, gr)
         end
     
         optimizer(M, f, g_zygote, x; kwargs...)
         regularization = regularization * regularization_damping
     end
-    E, lambda = reduced_augmented_Lagrangian_minimizer(A, x, y, target; regularization)
+    E, lambda = reduced_augmented_Lagrangian_minimizer(target, A, x, y; regularization)
     @show constraint_violation = norm((A+E)*x - x*lambda)
-    @show original_function_value = constrained_optimal_value(A, x, target)
-    @show heuristic_value = NearestUnstableMatrix.heuristic_zeros(A, x, target)[2]
+    @show original_function_value = constrained_optimal_value(target, A, x)
+    @show heuristic_value = NearestUnstableMatrix.heuristic_zeros(target, A, x)[2]
     return x
 end
 
@@ -370,23 +354,23 @@ function augmented_Lagrangian_method_optim(target, A, x0;
 
     y = zero(x0)  # this will be updated anyway
     regularization = starting_regularization
-    x0_warmstart = copy(x0)
+    x = copy(x0)
     for k = 1:outer_iterations
-    @show augmented_Lagrangian = reduced_augmented_Lagrangian(A, x0_warmstart, y, target; regularization) - regularization * norm(y)^2
+    @show augmented_Lagrangian = reduced_augmented_Lagrangian(target, A, x, y; regularization) - regularization * norm(y)^2
     @show regularization
     @show k
 
     # We start with a dual gradient ascent step from x0 to get a plausible y0
     # dual gradient ascent.
-    E, lambda = reduced_augmented_Lagrangian_minimizer(A, x0_warmstart, y, target; regularization)
-    y .= y + (1/regularization) * ((A+E)*x0_warmstart - x0_warmstart*lambda)
+    E, lambda = reduced_augmented_Lagrangian_minimizer(target, A, x, y; regularization)
+    y .= y + (1/regularization) * ((A+E)*x - x*lambda)
 
-    @show constraint_violation = norm((A+E)*x0_warmstart - x0_warmstart*lambda)
-    @show original_function_value = constrained_optimal_value(A, x0_warmstart, target)
-    @show heuristic_value = NearestUnstableMatrix.heuristic_zeros(A, x0_warmstart, target)[2]
+    @show constraint_violation = norm((A+E)*x - x*lambda)
+    @show original_function_value = constrained_optimal_value(target, A, x)
+    @show heuristic_value = NearestUnstableMatrix.heuristic_zeros(target, A, x)[2]
 
-    f(v) = reduced_augmented_Lagrangian(A, v, y, target; regularization)
-    g(v) = gradient(A, v, y, target; regularization)
+    f(v) = reduced_augmented_Lagrangian(target, A, v, y; regularization)
+    g(v) = gradient(target, A, v, y; regularization)
     
     res = optimize(f, g, x0, 
                     inplace=false,
@@ -394,25 +378,25 @@ function augmented_Lagrangian_method_optim(target, A, x0;
                     Optim.Options(; kwargs...))
     @show res
 
-    x0_warmstart .= res.minimizer
+    x .= res.minimizer
     regularization = regularization * regularization_damping
     end
-    E, lambda = reduced_augmented_Lagrangian_minimizer(A, x0_warmstart, y, target; regularization)
-    @show constraint_violation = norm((A+E)*x0_warmstart - x0_warmstart*lambda)
-    @show original_function_value = constrained_optimal_value(A, x0_warmstart, target)
-    @show heuristic_value = NearestUnstableMatrix.heuristic_zeros(A, x0_warmstart, target)[2]
-    return x0_warmstart
+    E, lambda = reduced_augmented_Lagrangian_minimizer(target, A, x, y; regularization)
+    @show constraint_violation = norm((A+E)*x - x*lambda)
+    @show original_function_value = constrained_optimal_value(target, A, x)
+    @show heuristic_value = NearestUnstableMatrix.heuristic_zeros(target, A, x)[2]
+    return x
 end
 
 
 """
-    v = fix_unfeasibility!(A, v, target; P=(A.!=0))
+    v = fix_unfeasibility!(target, A, v; P=(A.!=0))
 
 Makes sure that the least-squares problem is solvable, i.e., that m2[i] == 0 => v[i] = 0.,
 by inserting more zeros in v. This function is only needed if lambda != 0, otherwise the problem
 is always solvable.
 """
-function fix_unfeasibility!(A, v, target; P=(A.!=0))
+function fix_unfeasibility!(target, A, v; P=(A.!=0))
     while(true)
         m2inv = compute_m2inv(P, v, 0.; warn=false)
         to_zero = (m2inv .== 0) .& (v .!= 0)
@@ -424,46 +408,46 @@ function fix_unfeasibility!(A, v, target; P=(A.!=0))
 end
 
 """
-    v = insert_zero_heuristic!(A, v, target; P=(A.!=0))
+    v = insert_zero_heuristic!(target, A, v; P=(A.!=0))
 
     Modifies v to insert zero values instead of certain entries, hoping to reduce the objective function (but not guaranteed).
 
     By default, when altering a row i to be solvable, this will zero out not only the entries corresponding to P[i,:]
     but also the diagonal entry v[i], which appears in lambda*I.
     
-    This is skipped only if `isa(target, Nonsingular)`. Even if one is interested in certain other targets 
-    (e.g. Hurwitz) it might make sense to try the function with target==Nonsingular() to see if the objective value improves.
+    This is skipped only if `isa(target, Singular)`. Even if one is interested in certain other targets 
+    (e.g. NonHurwitz) it might make sense to try the function with target==Singular() to see if the objective value improves.
 """
-function insert_zero_heuristic!(A, v, target; P=(A.!=0))
+function insert_zero_heuristic!(target, A, v; P=(A.!=0))
     Av = MatrixWrapper(A)(v)
     m2inv = compute_m2inv(P, v, 0.; warn=false)
-    lambda = lambda_opt(Av, v, target, m2inv)
+    lambda = lambda_opt(target, Av, v, m2inv)
 
     z = v * lambda - Av
     m2 = MatrixWrapper(P)(abs2.(v))
     lstsq_smallness = m2 + abs2.(z)
     _, i = findmin(x -> x==0 ? Inf : x,  lstsq_smallness)
     v[P[i,:] .!= 0.] .= 0.
-    if !isa(target, Nonsingular)
-        fix_unfeasibility!(A, v, target)
+    if !isa(target, Singular)
+        fix_unfeasibility!(target, A, v)
     end
 end
 """
-    v, fval = heuristic_zeros(A, v_, target; P=(A.!=0))
+    v, fval = heuristic_zeros(target, A, v_; P=(A.!=0))
 
     Tries to replace with zeros some entries of v_ (those corresponding to small entries of m2), to get a lower 
     value fval for constrained_optimal_value. Keeps adding zeros iteratively.
 """
-function heuristic_zeros(A, v_, target; P=(A.!=0))
+function heuristic_zeros(target, A, v_; P=(A.!=0))
     v = copy(v_)
-    bestval = constrained_optimal_value(A, v, target)
+    bestval = constrained_optimal_value(target, A, v)
     bestvec = copy(v)
     for k = 1:length(v)
-        insert_zero_heuristic!(A, v, target; P)
+        insert_zero_heuristic!(target, A, v; P)
         if iszero(v)
             break
         end
-        curval = constrained_optimal_value(A, v, target)
+        curval = constrained_optimal_value(target, A, v)
         if curval < bestval
             bestval = curval
             bestvec .= v

@@ -6,23 +6,16 @@ using NearestUnstableMatrix
 
 A = reshape(collect(1:16), (4,4)); A[1,3:4] .= 0; A[2,4] = 0; A[3,1] = 0; A[4, 1:2] .= 0; A = Float64.(A)
 A = A - 30 * I
-target = Nonsingular # nearest singular matrix
-# target = Hurwitz # nearest non-Hurwitz stable matrix
+target = Singular()
 
 n = size(A,1)
 
-f(v) = constrained_optimal_value(A, v, target)
+f(v) = constrained_optimal_value(target, A, v)
 
 function g(v)
     gr = realgradient(f, v)
     return gr
 end
-
-# const tape = make_tape(x -> f(M, x), x0)
-# function g_rev(M, v)
-#     gr = realgradient_reverse(v, tape)
-#     return project(M, v, gr)
-# end
 
 function g_zygote(v)
     gr = first(realgradient_zygote(f, v))
@@ -42,4 +35,4 @@ res = optimize(f, g_zygote, x0, Optim.LBFGS(manifold=Optim.Sphere(), P=P, precon
 
 x = Optim.minimizer(res)
 
-E = constrained_minimizer(A, x, target)
+E, lambda = constrained_minimizer(target, A, x)
