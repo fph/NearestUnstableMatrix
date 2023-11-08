@@ -266,7 +266,7 @@ end
 
 
 
-function nearest_unstable_penalty_method!(target, A, x; 
+function nearest_unstable_penalty_method!(target, A, x; P = A.!=0, 
                         optimizer=Manopt.quasi_Newton!,
                         gradient=constrained_optimal_value_Euclidean_gradient_analytic,
                         outer_iterations=30, 
@@ -277,40 +277,42 @@ function nearest_unstable_penalty_method!(target, A, x;
     M = Manifolds.Sphere(n-1, ℂ)
     regularization = starting_regularization
 
-    E, lambda = constrained_minimizer(target, A, x; regularization)
+    E, lambda = constrained_minimizer(target, A, x; P, regularization)
     df = DataFrame()
     df.outer_iteration_number = [0]
     df.regularization = [regularization]
     df.inner_iterations = [0]
-    df.f = [constrained_optimal_value(target, A, x)]
-    df.f_reg = [constrained_optimal_value(target, A, x; regularization)]
-    df.f_heuristic = [NearestUnstableMatrix.heuristic_zeros(target, A, x)[2]]
+    df.f = [constrained_optimal_value(target, A, x; P)]
+    df.f_reg = [constrained_optimal_value(target, A, x; P, regularization)]
+    df.f_heuristic = [NearestUnstableMatrix.heuristic_zeros(target, A, x; P)[2]]
     df.constraint_violation = [norm((A+E)*x - x*lambda)]
     
     for k = 1:outer_iterations
-        E, lambda = constrained_minimizer(target, A, x; regularization)
+        @show k
+
+        E, lambda = constrained_minimizer(target, A, x; P, regularization)
         # @show original_function_value = constrained_optimal_value(target, A, x)
         # @show heuristic_value = NearestUnstableMatrix.heuristic_zeros(target, A, x)[2]
         # @show constraint_violation = norm((A+E)*x - x*lambda)
         # @show regularization
         # @show k
 
-        f(M, v) = constrained_optimal_value(target, A, v; regularization)
+        f(M, v) = constrained_optimal_value(target, A, v; P, regularization)
 
         function g(M, v)
-            gr = gradient(target, A, v; regularization)
+            gr = gradient(target, A, v; P, regularization)
             return project(M, v, gr)
         end
     
         R = optimizer(M, f, g, x; return_state=true, record=[:Iteration], kwargs...)
-        E, lambda = constrained_minimizer(target, A, x; regularization)
+        E, lambda = constrained_minimizer(target, A, x; P, regularization)
         
         # populate results
         push!(df, 
             [k, regularization, length(get_record(R)), 
-            constrained_optimal_value(target, A, x),
-            constrained_optimal_value(target, A, x; regularization),
-            NearestUnstableMatrix.heuristic_zeros(target, A, x)[2],
+            constrained_optimal_value(target, A, x; P),
+            constrained_optimal_value(target, A, x; P, regularization),
+            NearestUnstableMatrix.heuristic_zeros(target, A, x; P)[2],
             norm((A+E)*x - x*lambda),
             ]
         )
@@ -346,7 +348,7 @@ function nearest_unstable_augmented_Lagrangian_method!(target, A, x; P = A.!=0, 
     df.augmented_Lagrangian = [reduced_augmented_Lagrangian(target, A, x, y; P, regularization) - regularization*norm(y)^2]
     
     for k = 1:outer_iterations        
-        
+        @show k        
         f(M, v) = reduced_augmented_Lagrangian(target, A, v, y; P, regularization)
         function g_zygote(M, v)
             gr = gradient(target, A, v, y; P, regularization)
@@ -355,7 +357,7 @@ function nearest_unstable_augmented_Lagrangian_method!(target, A, x; P = A.!=0, 
 
         R = optimizer(M, f, g_zygote, x; return_state=true, record=[:Iteration], kwargs...)
         E, lambda = reduced_augmented_Lagrangian_minimizer(target, A, x, y; P, regularization)
-        push!(df, 
+        push!(df,
             [k, regularization, length(get_record(R)), 
             constrained_optimal_value(target, A, x; P),
             constrained_optimal_value(target, A, x; P, regularization),
@@ -460,7 +462,7 @@ function insert_zero_heuristic!(target, A, v; P=(A.!=0))
     _, i = findmin(x -> x==0 ? Inf : x,  lstsq_smallness)
     v[P[i,:] .!= 0.] .= 0.
     if !isa(target, Singular)
-        fix_unfeasibility!(target, A, v)
+        fix_unfeasibility!(target, A, v; P)
     end
 end
 """
@@ -471,14 +473,14 @@ end
 """
 function heuristic_zeros(target, A, v_; P=(A.!=0))
     v = copy(v_)
-    bestval = constrained_optimal_value(target, A, v)
+    bestval = constrained_optimal_value(target, A, v; P)
     bestvec = copy(v)
     for k = 1:length(v)
         insert_zero_heuristic!(target, A, v; P)
         if iszero(v)
             break
         end
-        curval = constrained_optimal_value(target, A, v)
+        curval = constrained_optimal_value(target, A, v; P)
         if curval < bestval
             bestval = curval
             bestvec .= v
