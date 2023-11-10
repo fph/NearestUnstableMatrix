@@ -477,10 +477,10 @@ function heuristic_zeros(target, A, v_; P=(A.!=0))
     bestvec = copy(v)
     for k = 1:length(v)
         insert_zero_heuristic!(target, A, v; P)
-        if iszero(v)
+        curval = constrained_optimal_value(target, A, v; P)
+        if iszero(curval)
             break
         end
-        curval = constrained_optimal_value(target, A, v; P)
         if curval < bestval
             bestval = curval
             bestvec .= v
