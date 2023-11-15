@@ -3,6 +3,7 @@ using NearestUnstableMatrix
 
 using MatrixMarket
 A = mmread("orani678.mtx")
+pert = ComplexSparsePerturbation(A.!=0)
 
 target = Singular()
 
@@ -11,7 +12,7 @@ target = Singular()
 U, S, V = svd(Array(A))
 x0 = complex.(V[:, end])
 
-x = nearest_unstable(target, A, x0,
+x = nearest_unstable(target, pert, A, x0,
 #    optimizer=quasi_Newton,
     debug=[:Iteration,(:Change, "|Δp|: %1.9f |"), 
             (:Cost, " F(x): %1.11f | "), 
@@ -20,4 +21,4 @@ x = nearest_unstable(target, A, x0,
             stopping_criterion=StopWhenAny(StopAfterIteration(1000), 
                                     StopWhenGradientNormLess(10^(-6))))
 
-E, lambda = constrained_minimizer(target, A, x)
+E, lambda = constrained_minimizer(target, pert, A, x)
