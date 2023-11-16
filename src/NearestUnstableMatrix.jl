@@ -14,22 +14,22 @@ export constrained_minimizer, constrained_optimal_value,
     InsideDisc, OutsideDisc, NonHurwitz, NonSchur,  RightOf, Singular,
     precompute, ComplexSparsePerturbation, GeneralPerturbation,
     nearest_unstable, heuristic_zeros,
-    MatrixWrapper, lambda_opt,
+    ConstantMatrixProduct, lambda_opt,
     project
     
 """
-    Custom type to wrap matrix multiplication, to work around an (apparent)
-    bug with Zygote and constant sparse booleans.
+    Custom type to wrap matrix multiplication with a constant matrix A, 
+    to work around an (apparent) bug with Zygote and constant sparse booleans.
     Also, this ends up being faster than the custom sparse A*v in Zygote,
     because it does not compute the pullback wrt A, 
-    so we switch to it for all our matrix products
+    so we switch to it for all our matrix products.
 """
-struct MatrixWrapper{T<:AbstractMatrix}
+struct ConstantMatrixProduct{T<:AbstractMatrix}
     P::T
 end
-(P::MatrixWrapper)(w::AbstractVecOrMat) = P.P * w
+(P::ConstantMatrixProduct)(w::AbstractVecOrMat) = P.P * w
 # rrule modified from https://discourse.julialang.org/t/zygote-product-with-a-constant-sparse-boolean/99510/3
-function ChainRulesCore.rrule(P::MatrixWrapper, w::AbstractVecOrMat)
+function ChainRulesCore.rrule(P::ConstantMatrixProduct, w::AbstractVecOrMat)
     project_w = ProjectTo(w)
     pullback(∂y) =  @not_implemented("A assumed constant"), project_w(P.P'*∂y)
     return P(w), pullback
@@ -86,12 +86,12 @@ Computes "something related" to the inverse of the weighting matrix M_v.
 
 * For ComplexSparsePerturbation, it is the inverse of the weight vector, 
 m2inv[i] = 1 / (||d_i||^2 + epsilon), where d_i is the vector with d_i=1 iff A[i,j]≠0 and 0 otherwise.
-Moreover, adjusts the vector such that 1/0=Inf is replaced by 0, to avoid NaNs in further computations.
+Moreover, the method adjusts the vector such that 1/0=Inf is replaced by 0, to avoid NaNs in further computations.
 
 * For GeneralPerturbation, it is QR(M_v)
 """
 function precompute(pert::ComplexSparsePerturbation, v, regularization; warn=true)
-    m2inv = 1 ./ (MatrixWrapper(pert.P)(abs2.(v)) .+ regularization)
+    m2inv = 1 ./ (ConstantMatrixProduct(pert.P)(abs2.(v)) .+ regularization)
     if regularization == 0.
         m2inv = inftozero.(m2inv)
         if warn && any(v[m2inv .== 0]  .!= 0)
@@ -121,7 +121,7 @@ end
 Computes the argmin corresponding to `constrained_optimal_value`
 """
 function constrained_minimizer(target, pert::ComplexSparsePerturbation, A, v; regularization=0.0)
-    Av = MatrixWrapper(A)(v)  # Av = A*v
+    Av = ConstantMatrixProduct(A)(v)  # Av = A*v
     pc = precompute(pert, v, regularization; warn=!isa(target, Singular))
     lambda = lambda_opt(target, pert, Av, v, pc)
     m2inv = pc
@@ -139,7 +139,7 @@ Computes optval = min ||E||^2 s.t. (A+E)v = v*λ and the constraint that the spa
 λ is chosen (inside the target region or on its border) to minimize `constrained_optimal_value(A, v, λ)`
 """
 function constrained_optimal_value(target, pert::ComplexSparsePerturbation, A, v; regularization=0.0)
-    Av = MatrixWrapper(A)(v)  # Av = A*v
+    Av = ConstantMatrixProduct(A)(v)  # Av = A*v
     pc = precompute(pert, v, regularization; warn=!isa(target, Singular))
     lambda = lambda_opt(target, pert, Av, v, pc)
     m2inv = pc
@@ -153,7 +153,7 @@ function constrained_optimal_value_Euclidean_gradient_zygote(target, pert, A, v;
 end
 
 function constrained_optimal_value_Euclidean_gradient_analytic(target, pert::ComplexSparsePerturbation, A, v; regularization=0.0)
-    Av = MatrixWrapper(A)(v)  # Av = A*v
+    Av = ConstantMatrixProduct(A)(v)  # Av = A*v
     pc = precompute(pert, v, regularization; warn=!isa(target, Singular))
     lambda = lambda_opt(target, pert, Av, v, pc)
     m2inv = pc
@@ -181,7 +181,7 @@ end
     Returns the augmented Lagrangian without the 1/reg*||y||^2 term, which is useless for minimization since it is constant
 """
 function reduced_augmented_Lagrangian(target, pert::ComplexSparsePerturbation, A, v, y; regularization=0.0)
-    Av_mod = MatrixWrapper(A)(v) + regularization*y
+    Av_mod = ConstantMatrixProduct(A)(v) + regularization*y
     pc = precompute(pert, v, regularization; warn=!isa(target, Singular))
     lambda = lambda_opt(target, pert, Av_mod, v, pc)
     m2inv = pc
@@ -191,7 +191,7 @@ function reduced_augmented_Lagrangian(target, pert::ComplexSparsePerturbation, A
 end
 
 function reduced_augmented_Lagrangian_minimizer(target, pert::ComplexSparsePerturbation, A, v, y; regularization=0.0)
-    Av_mod = MatrixWrapper(A)(v) + regularization*y
+    Av_mod = ConstantMatrixProduct(A)(v) + regularization*y
     pc =  precompute(pert, v, regularization; warn=!isa(target, Singular))
     lambda = lambda_opt(target, pert, Av_mod, v, pc)
     m2inv = pc
@@ -205,7 +205,7 @@ function reduced_augmented_Lagrangian_Euclidean_gradient_zygote(target, pert, A,
 end
 
 function reduced_augmented_Lagrangian_Euclidean_gradient_analytic(target, pert::ComplexSparsePerturbation, A, v, y; regularization=0.0)
-    Av_mod = MatrixWrapper(A)(v) + regularization*y
+    Av_mod = ConstantMatrixProduct(A)(v) + regularization*y
     pc = precompute(pert, v, regularization; warn=!isa(target, Singular))
     lambda = lambda_opt(target, pert, Av_mod, v, pc)
     m2inv = pc
@@ -478,12 +478,12 @@ end
     (e.g. NonHurwitz) it might make sense to try the function with target==Singular() to see if the objective value improves.
 """
 function insert_zero_heuristic!(target, pert::ComplexSparsePerturbation, A, v)
-    Av = MatrixWrapper(A)(v)
+    Av = ConstantMatrixProduct(A)(v)
     pc = precompute(pert, v, 0.; warn=false)
     lambda = lambda_opt(target, pert, Av, v, pc)
 
     z = v * lambda - Av
-    m2 = MatrixWrapper(pert.P)(abs2.(v))
+    m2 = ConstantMatrixProduct(pert.P)(abs2.(v))
     lstsq_smallness = m2 + abs2.(z)
     _, i = findmin(x -> x==0 ? Inf : x,  lstsq_smallness)
     v[pert.P[i,:] .!= 0.] .= 0.
