@@ -164,6 +164,7 @@ end
       outer_iterations=30, 
       regularization_damping=0.7,
       gradient=NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_analytic, 
+      verbose=false,
       # Optim.jl options
       g_tol=1e-6, 
       iterations=10_000)

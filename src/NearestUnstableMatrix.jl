@@ -100,17 +100,48 @@ function precompute(pert::ComplexSparsePerturbation, v, regularization; warn=tru
     end 
     return m2inv
 end
+function precompute(pert::GeneralPerturbation, v, regularization; warn=true)
+    Mv = reduce(hcat, pert.EE[:,:,i]*v for i in 1:size(pert.EE,3))
+    if iszero(regularization)
+        Mv_reg = Mv
+    else
+        Mv_reg = hcat(Mv, sqrt(regularization)*I)
+    end
+    return qr(Mv_reg')
+end
+
+"""
+    Computes the value of the quadratic form xᴴinv(MᵥMᵥᴴ+λI)x, 
+"""
+function inverse_quadratic_form(pc::LinearAlgebra.QRCompactWY, x)
+    a = pc.R' \ x
+    return sum(abs2, a)
+end
+function inverse_quadratic_form(pc::Vector, x)
+    return sum(abs2.(x) .* pc)
+end
+
+"""
+    Computes the value of the bilinear form yᴴinv(MᵥMᵥᴴ+λI)x, 
+"""
+function inverse_bilinear_form(y, pc::LinearAlgebra.QRCompactWY, x)
+    a = pc.R' \ x
+    b = pc.R' \ y
+    return dot(b, a)
+end
+function inverse_bilinear_form(y, pc::Vector, x)
+    sum((conj.(y)) .* (x .* pc))
+end
 
 """
     lambda_opt(target, pert, Av, v, pc)
 
 Computes the optimal projected eigenvalue lambda for a given problem
 """
-lambda_opt(target::Singular, pert::ComplexSparsePerturbation, Av, v, pc) = zero(eltype(v))
-function lambda_opt(target::Region, pert::ComplexSparsePerturbation, Av, v, pc)
-    m2inv = pc
-    denom = sum(abs2.(v) .* m2inv)
-    numer = sum((conj.(v)) .* (Av .* m2inv))
+lambda_opt(target::Singular, pert, Av, v, pc) = zero(eltype(v))
+function lambda_opt(target::Region, pert, Av, v, pc)
+    denom = inverse_quadratic_form(pc, v)
+    numer = inverse_bilinear_form(v, pc, Av)
     lambda = project(target, numer / denom)
     return lambda
 end
@@ -138,13 +169,12 @@ Computes optval = min ||E||^2 s.t. (A+E)v = v*λ and the constraint that the spa
 
 λ is chosen (inside the target region or on its border) to minimize `constrained_optimal_value(A, v, λ)`
 """
-function constrained_optimal_value(target, pert::ComplexSparsePerturbation, A, v; regularization=0.0)
+function constrained_optimal_value(target, pert, A, v; regularization=0.0)
     Av = ConstantMatrixProduct(A)(v)  # Av = A*v
     pc = precompute(pert, v, regularization; warn=!isa(target, Singular))
     lambda = lambda_opt(target, pert, Av, v, pc)
-    m2inv = pc
     z = v * lambda - Av
-    optval = sum(abs2.(z) .* m2inv)
+    optval = inverse_quadratic_form(pc, z)
     return optval
 end
 
@@ -180,13 +210,12 @@ end
 """
     Returns the augmented Lagrangian without the 1/reg*||y||^2 term, which is useless for minimization since it is constant
 """
-function reduced_augmented_Lagrangian(target, pert::ComplexSparsePerturbation, A, v, y; regularization=0.0)
+function reduced_augmented_Lagrangian(target, pert, A, v, y; regularization=0.0)
     Av_mod = ConstantMatrixProduct(A)(v) + regularization*y
     pc = precompute(pert, v, regularization; warn=!isa(target, Singular))
     lambda = lambda_opt(target, pert, Av_mod, v, pc)
-    m2inv = pc
     z = v * lambda - Av_mod
-    optval = sum(abs2.(z) .* m2inv)
+    optval = inverse_quadratic_form(pc, z)
     return optval
 end
 
@@ -408,41 +437,48 @@ function nearest_unstable_augmented_Lagrangian_method_optim(target, pert, A, x0;
         starting_regularization=1., 
         regularization_damping = 0.75,
         memory_parameter=20,
+        verbose=true,
         kwargs...)
 
     y = zero(x0)  # this will be updated anyway
     regularization = starting_regularization
     x = copy(x0)
     for k = 1:outer_iterations
-    @show augmented_Lagrangian = reduced_augmented_Lagrangian(target, pert, A, x, y; regularization) - regularization * norm(y)^2
-    @show regularization
-    @show k
+        if verbose
+            @show augmented_Lagrangian = reduced_augmented_Lagrangian(target, pert, A, x, y; regularization) - regularization * norm(y)^2
+            @show regularization
+            @show k
+        end
 
-    # We start with a dual gradient ascent step from x0 to get a plausible y0
-    # dual gradient ascent.
-    E, lambda = reduced_augmented_Lagrangian_minimizer(target, pert, A, x, y; regularization)
-    y .= y + (1/regularization) * ((A+E)*x - x*lambda)
+        # We start with a dual gradient ascent step from x0 to get a plausible y0
+        # dual gradient ascent.
+        E, lambda = reduced_augmented_Lagrangian_minimizer(target, pert, A, x, y; regularization)
+        y .= y + (1/regularization) * ((A+E)*x - x*lambda)
+        if verbose
+            @show constraint_violation = norm((A+E)*x - x*lambda)
+            @show original_function_value = constrained_optimal_value(target, pert, A, x)
+            @show heuristic_value = NearestUnstableMatrix.heuristic_zeros(target, pert, A, x)[2]
+        end
+        f(v) = reduced_augmented_Lagrangian(target, pert, A, v, y; regularization)
+        g(v) = gradient(target, pert, A, v, y; regularization)
+        
+        res = optimize(f, g, x0, 
+                        inplace=false,
+                        Optim.LBFGS(manifold=Optim.Sphere(), m=memory_parameter), 
+                        Optim.Options(; kwargs...))
+        if verbose
+            @show res
+        end
 
-    @show constraint_violation = norm((A+E)*x - x*lambda)
-    @show original_function_value = constrained_optimal_value(target, pert, A, x)
-    @show heuristic_value = NearestUnstableMatrix.heuristic_zeros(target, pert, A, x)[2]
-
-    f(v) = reduced_augmented_Lagrangian(target, pert, A, v, y; regularization)
-    g(v) = gradient(target, pert, A, v, y; regularization)
-    
-    res = optimize(f, g, x0, 
-                    inplace=false,
-                    Optim.LBFGS(manifold=Optim.Sphere(), m=memory_parameter), 
-                    Optim.Options(; kwargs...))
-    @show res
-
-    x .= res.minimizer
-    regularization = regularization * regularization_damping
+        x .= res.minimizer
+        regularization = regularization * regularization_damping
     end
     E, lambda = reduced_augmented_Lagrangian_minimizer(target, pert, A, x, y; regularization)
-    @show constraint_violation = norm((A+E)*x - x*lambda)
-    @show original_function_value = constrained_optimal_value(target, pert, A, x)
-    @show heuristic_value = NearestUnstableMatrix.heuristic_zeros(target, pert, A, x)[2]
+    if verbose
+        @show constraint_violation = norm((A+E)*x - x*lambda)
+        @show original_function_value = constrained_optimal_value(target, pert, A, x)
+        @show heuristic_value = NearestUnstableMatrix.heuristic_zeros(target, pert, A, x)[2]
+    end
     return x
 end
 
