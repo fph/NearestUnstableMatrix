@@ -15,7 +15,7 @@ export constrained_minimizer, constrained_optimal_value,
     precompute, ComplexSparsePerturbation, GeneralPerturbation,
     nearest_unstable, heuristic_zeros,
     ConstantMatrixProduct, lambda_opt,
-    project
+    project, toeplitz_perturbation, grcar
     
 """
     Custom type to wrap matrix multiplication with a constant matrix A, 
@@ -77,7 +77,28 @@ struct GeneralPerturbation{T} <: PerturbationStructure where T<:AbstractVector
     EE::T
 end
 
-inftozero(x) = ifelse(isinf(x), zero(x), x)
+
+"""
+    toeplitz_perturbation(n)
+    toeplitz_perturbation(A)
+
+    Return a GeneralPerturbation that allows (complex) Toeplitz perturbations of a n×n matrix.
+"""
+function toeplitz_perturbation(n::Number, indices=-(n-1):(n-1))
+    EE = collect(1/sqrt(n-abs(k)) * diagm(k => ones(n-abs(k))) for k in indices)
+    return GeneralPerturbation(EE)
+end
+toeplitz_perturbation(A::Matrix) = toeplitz_perturbation(size(A,1))
+toeplitz_perturbation(A::Matrix, indices) = toeplitz_perturbation(size(A,1), indices)
+
+"""
+    grcar(n)
+
+Compute the nxn Grcar matrix
+"""
+function grcar(n)
+    return diagm(-1=>-ones(n-1), 0=>ones(n), 1=>ones(n-1), 2=>ones(n-2), 3=>ones(n-3))
+end
 
 function compute_MvMvt(pert::ComplexSparsePerturbation, v; regularization=0.0)
     d2 = ConstantMatrixProduct(pert.P)(abs2.(v))
@@ -88,6 +109,8 @@ function compute_Mv(pert::GeneralPerturbation, v; regularization=0.0)
     return reduce(hcat, E*v for E in pert.EE)
 end
 
+
+inftozero(x) = ifelse(isinf(x), zero(x), x)
 """
     pc = precompute(pert, v, regularization)
 
@@ -140,6 +163,16 @@ function inverse_bilinear_form(y, pc::LinearAlgebra.QRCompactWY, x)
 end
 function inverse_bilinear_form(y, pc::Vector, x)
     sum((conj.(y)) .* (x .* pc))
+end
+
+"""
+Computes (MᵥMᵥᴴ+λI)⁻¹x
+"""
+function inverse_quadratic_form_matvec(pc::LinearAlgebra.QRCompactWY, z)
+    return pc.R \ (pc.R' \ z)
+end
+function inverse_quadratic_form_matvec(pc::Vector, z)
+    return z .* pc
 end
 
 """
@@ -410,7 +443,7 @@ function nearest_unstable_penalty_method!(target, pert, A, x;
 end
 
 
-function nearest_unstable_augmented_Lagrangian_method!(target, pert::ComplexSparsePerturbation, A, x; optimizer=Manopt.quasi_Newton!,
+function nearest_unstable_augmented_Lagrangian_method!(target, pert, A, x; optimizer=Manopt.quasi_Newton!,
                                                     gradient=reduced_augmented_Lagrangian_Euclidean_gradient_analytic,
                                                     outer_iterations=60,
                                                     starting_regularization=1., 
@@ -455,8 +488,8 @@ function nearest_unstable_augmented_Lagrangian_method!(target, pert::ComplexSpar
         )
 
         pc = precompute(pert, x, regularization; warn=false)
-        m2inv = pc
-        y .= (A*x + regularization*y - x*lambda) .* m2inv
+        #TODO: compare accuracy of this formula with the vanilla update y .= y + (1/regularization) * ((A+E)*x - x*lambda)
+        y .= inverse_quadratic_form_matvec(pc, A*x + regularization*y - x*lambda)         
         regularization = regularization * regularization_damping
 
     end
@@ -566,7 +599,7 @@ end
     Tries to replace with zeros some entries of v_ (those corresponding to small entries of m2), to get a lower 
     value fval for constrained_optimal_value. Keeps adding zeros iteratively.
 """
-function heuristic_zeros(target, pert, A, v_)
+function heuristic_zeros(target, pert::ComplexSparsePerturbation, A, v_)
     v = copy(v_)
     bestval = constrained_optimal_value(target, pert, A, v)
     bestvec = copy(v)
@@ -583,6 +616,6 @@ function heuristic_zeros(target, pert, A, v_)
     end
     return bestvec, bestval
 end
-
+heuristic_zeros(target, pert::GeneralPerturbation, A, v_) = (NaN, NaN)  # not implemented yet
 
 end # module

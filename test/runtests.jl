@@ -176,6 +176,34 @@ end
 
 end
 
+function is_toeplitz(A)
+      n = size(A, 1)
+      return all(allequal(diag(A, k)) for k in -(n-2):(n-2))
+end
+
+@testset "Toeplitz perturbation" begin
+      A = -[5 4 3.; 2 5 4; 1 2 5]
+      P = toeplitz_perturbation(A)
+      target = NonHurwitz()
+      x0 = project(Manifolds.Sphere(size(A,1) - 1, ℂ), randn(Complex{eltype(A)}, size(A, 1)))
+      x = nearest_unstable(target, P, A, x0,
+            stopping_criterion=StopWhenAny(StopAfterIteration(1000), StopWhenGradientNormLess(10^(-6))))
+      E, lambda = constrained_minimizer(target, P, A, x)
+      @test is_toeplitz(E)
+      @test abs(lambda - x'*(A+E)*x) < sqrt(eps(1.))
+      @test norm((A+E)*x - x*lambda) < sqrt(eps(1.))
+      @test abs(real(lambda)) < sqrt(eps(1.))
+end
+
+# @testset "Grcar" begin
+#       A = -grcar(6)
+#       P = toeplitz_perturbation(A, -1:3)
+#       target = NonHurwitz()
+#       x0 = project(Manifolds.Sphere(size(A,1) - 1, ℂ), randn(Complex{eltype(A)}, size(A, 1)))
+#       x = nearest_unstable(target, P, A, x0,
+#             stopping_criterion=StopWhenAny(StopAfterIteration(1000), StopWhenGradientNormLess(10^(-6))))
+#       E, lambda = constrained_minimizer(target, P, A, x)
+# end
 
 @testset "nearest_unstable" begin
       A = reshape(collect(1:16), (4,4)); A[1,3:4] .= 0; A[2,4] = 0; A[3,1] = 0; A[4, 1:2] .= 0; A = Float64.(A)
