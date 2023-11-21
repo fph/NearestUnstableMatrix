@@ -143,6 +143,39 @@ end
     NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_analytic(target, P, A, v, y)
 end
 
+@testset "General perturbations" begin
+      A = reshape(collect(1:16), (4,4)); A[1,3:4] .= 0; A[2,4] = 0; A[3,1] = 0; A[4, 1:2] .= 0; A = Float64.(A)
+      A = A - 30 * I
+      n = size(A, 1)
+      target = NonHurwitz()
+      v = normalize(rand(ComplexF64, n))
+      
+      P1 = ComplexSparsePerturbation(A.!=0)
+      (ii, jj, _) = findnz(sparse(A))
+      EE = collect(sparse([i], [j], [1.], n, n) for (i, j) in zip(ii, jj))
+      P2 = GeneralPerturbation(EE)
+      
+      @test constrained_optimal_value(target, P1, A, v) ≈ constrained_optimal_value(target, P2, A, v)
+      E1, lambda1 = constrained_minimizer(target, P1, A, v)
+      E2, lambda2 = constrained_minimizer(target, P2, A, v)
+      @test E1 ≈ E2
+
+      @test NearestUnstableMatrix.constrained_optimal_value_Euclidean_gradient_analytic(target, P1, A, v) ≈ 
+            NearestUnstableMatrix.constrained_optimal_value_Euclidean_gradient_analytic(target, P2, A, v)
+
+      regularization = 0.1
+      @test NearestUnstableMatrix.constrained_optimal_value_Euclidean_gradient_analytic(target, P1, A, v; regularization) ≈ 
+            NearestUnstableMatrix.constrained_optimal_value_Euclidean_gradient_analytic(target, P2, A, v; regularization)
+
+      y = randn(ComplexF64, n)
+      @test NearestUnstableMatrix.reduced_augmented_Lagrangian(target, P1, A, v, y; regularization) ≈ 
+            NearestUnstableMatrix.reduced_augmented_Lagrangian(target, P2, A, v, y; regularization)
+
+      @test NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_analytic(target, P1, A, v, y; regularization) ≈ 
+            NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_analytic(target, P2, A, v, y; regularization)
+
+end
+
 
 @testset "nearest_unstable" begin
       A = reshape(collect(1:16), (4,4)); A[1,3:4] .= 0; A[2,4] = 0; A[3,1] = 0; A[4, 1:2] .= 0; A = Float64.(A)

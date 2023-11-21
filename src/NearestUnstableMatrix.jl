@@ -71,13 +71,22 @@ struct ComplexSparsePerturbation{T} <: PerturbationStructure
 end
 
 """
-    Type for a general perturbation E = ∑ Eᵢ wᵢ. The individual slices are stored as E[:, :, i].
+    Type for a general perturbation E = ∑ Eᵢ ωᵢ. EE is a vector of matrices. Probably this is not going to be too performant.
 """
-struct GeneralPerturbation{T} <: PerturbationStructure
+struct GeneralPerturbation{T} <: PerturbationStructure where T<:AbstractVector
     EE::T
 end
 
 inftozero(x) = ifelse(isinf(x), zero(x), x)
+
+function compute_MvMvt(pert::ComplexSparsePerturbation, v; regularization=0.0)
+    d2 = ConstantMatrixProduct(pert.P)(abs2.(v))
+    return Diagonal(d2)
+end
+
+function compute_Mv(pert::GeneralPerturbation, v; regularization=0.0)
+    return reduce(hcat, E*v for E in pert.EE)
+end
 
 """
     pc = precompute(pert, v, regularization)
@@ -101,7 +110,7 @@ function precompute(pert::ComplexSparsePerturbation, v, regularization; warn=tru
     return m2inv
 end
 function precompute(pert::GeneralPerturbation, v, regularization; warn=true)
-    Mv = reduce(hcat, pert.EE[:,:,i]*v for i in 1:size(pert.EE,3))
+    Mv = compute_Mv(pert, v; regularization)
     if iszero(regularization)
         Mv_reg = Mv
     else
@@ -111,7 +120,7 @@ function precompute(pert::GeneralPerturbation, v, regularization; warn=true)
 end
 
 """
-    Computes the value of the quadratic form xᴴinv(MᵥMᵥᴴ+λI)x, 
+    Computes the value of the quadratic form xᴴ(MᵥMᵥᴴ+λI)⁻¹x, 
 """
 function inverse_quadratic_form(pc::LinearAlgebra.QRCompactWY, x)
     a = pc.R' \ x
@@ -122,7 +131,7 @@ function inverse_quadratic_form(pc::Vector, x)
 end
 
 """
-    Computes the value of the bilinear form yᴴinv(MᵥMᵥᴴ+λI)x, 
+    Computes the value of the bilinear form yᴴ(MᵥMᵥᴴ+λI)⁻¹x, 
 """
 function inverse_bilinear_form(y, pc::LinearAlgebra.QRCompactWY, x)
     a = pc.R' \ x
@@ -131,6 +140,37 @@ function inverse_bilinear_form(y, pc::LinearAlgebra.QRCompactWY, x)
 end
 function inverse_bilinear_form(y, pc::Vector, x)
     sum((conj.(y)) .* (x .* pc))
+end
+
+"""
+    Computes the smallest E s.t. Ev = z  
+"""
+function optimal_E(pert::GeneralPerturbation, v, z, pc)
+    omega = (pc.Q*(pc.R' \ z))[1:length(pert.EE)]
+    E = reduce(+, E*m for (E,m) in zip(pert.EE, omega))
+    return E
+end
+function optimal_E(pert::ComplexSparsePerturbation, v, z, pc)
+    t = z .* pc
+    E = t .* (v' .* pert.P)  # the middle .* broadcasts column * row    
+    return E
+end
+
+"""
+    Return ∇ zᴴ(MᵥMᵥᴴ)⁻¹z,
+    for a vector z with dz/dv = (A-λ I)  --- typically, z = (A-λI)v + εy), to account for the extended Lagrangian formulation
+"""
+function analytic_gradient(pert::GeneralPerturbation, A, v, z, lambda, pc)
+    invRtz = pc.R' \ z
+    omega = (pc.Q*invRtz)[1:length(pert.EE)]
+    nv = pc.R \ invRtz
+    grad = 2(A'*nv - nv*lambda' - sum(conj(m)*(E'*nv) for (E,m) in zip(pert.EE, omega)))
+    return grad
+end
+function analytic_gradient(pert::ComplexSparsePerturbation, A, v, z, lambda, pc)
+    nv = z .* pc
+    grad = 2(A'*nv - nv*lambda' - (pert.P' * abs2.(nv)) .* v)
+    return grad
 end
 
 """
@@ -151,14 +191,12 @@ end
 
 Computes the argmin corresponding to `constrained_optimal_value`
 """
-function constrained_minimizer(target, pert::ComplexSparsePerturbation, A, v; regularization=0.0)
+function constrained_minimizer(target, pert, A, v; regularization=0.0)
     Av = ConstantMatrixProduct(A)(v)  # Av = A*v
     pc = precompute(pert, v, regularization; warn=!isa(target, Singular))
     lambda = lambda_opt(target, pert, Av, v, pc)
-    m2inv = pc
     z = v * lambda - Av
-    t = z .* m2inv
-    E = t .* (v' .* pert.P)  # the middle .* broadcasts column * row
+    E = optimal_E(pert, v, z, pc)
     return E, lambda
 end
 
@@ -182,14 +220,12 @@ function constrained_optimal_value_Euclidean_gradient_zygote(target, pert, A, v;
     return first(realgradient_zygote(x -> constrained_optimal_value(target, pert, A, x; regularization), v))
 end
 
-function constrained_optimal_value_Euclidean_gradient_analytic(target, pert::ComplexSparsePerturbation, A, v; regularization=0.0)
+function constrained_optimal_value_Euclidean_gradient_analytic(target, pert, A, v; regularization=0.0)
     Av = ConstantMatrixProduct(A)(v)  # Av = A*v
     pc = precompute(pert, v, regularization; warn=!isa(target, Singular))
     lambda = lambda_opt(target, pert, Av, v, pc)
-    m2inv = pc
-    nv = (Av - v*lambda) .* m2inv
-    grad = 2(A'*nv - nv*lambda' - (pert.P' * abs2.(nv)) .* v)
-    return grad
+    z = Av - v*lambda
+    return analytic_gradient(pert, A, v, z, lambda, pc)
 end
 
 
@@ -219,13 +255,12 @@ function reduced_augmented_Lagrangian(target, pert, A, v, y; regularization=0.0)
     return optval
 end
 
-function reduced_augmented_Lagrangian_minimizer(target, pert::ComplexSparsePerturbation, A, v, y; regularization=0.0)
+function reduced_augmented_Lagrangian_minimizer(target, pert, A, v, y; regularization=0.0)
     Av_mod = ConstantMatrixProduct(A)(v) + regularization*y
     pc =  precompute(pert, v, regularization; warn=!isa(target, Singular))
     lambda = lambda_opt(target, pert, Av_mod, v, pc)
-    m2inv = pc
     z = v * lambda - Av_mod
-    E = (z .* m2inv) .* (v' .* pert.P)  # the middle .* broadcasts column * row
+    E = optimal_E(pert, v, z, pc)
     return E, lambda
 end
 
@@ -233,14 +268,12 @@ function reduced_augmented_Lagrangian_Euclidean_gradient_zygote(target, pert, A,
     return first(realgradient_zygote(x -> reduced_augmented_Lagrangian(target, pert, A, x, y; regularization), v))
 end
 
-function reduced_augmented_Lagrangian_Euclidean_gradient_analytic(target, pert::ComplexSparsePerturbation, A, v, y; regularization=0.0)
+function reduced_augmented_Lagrangian_Euclidean_gradient_analytic(target, pert, A, v, y; regularization=0.0)
     Av_mod = ConstantMatrixProduct(A)(v) + regularization*y
     pc = precompute(pert, v, regularization; warn=!isa(target, Singular))
     lambda = lambda_opt(target, pert, Av_mod, v, pc)
-    m2inv = pc
-    nv = (Av_mod - v*lambda) .* m2inv
-    grad = 2(A'*nv - nv*lambda' - (pert.P' * abs2.(nv)) .* v)
-    return grad
+    z = Av_mod - v*lambda
+    return analytic_gradient(pert, A, v, z, lambda, pc)
 end
 
 """
