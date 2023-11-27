@@ -159,11 +159,19 @@ end
       E1, lambda1 = constrained_minimizer(target, P1, A, v)
       E2, lambda2 = constrained_minimizer(target, P2, A, v)
       @test E1 ≈ E2
+      @test lambda1 ≈ lambda2
 
       @test NearestUnstableMatrix.constrained_optimal_value_Euclidean_gradient_analytic(target, P1, A, v) ≈ 
             NearestUnstableMatrix.constrained_optimal_value_Euclidean_gradient_analytic(target, P2, A, v)
 
       regularization = 0.1
+      @test constrained_optimal_value(target, P1, A, v; regularization) ≈ constrained_optimal_value(target, P2, A, v; regularization)
+      E1, lambda1 = constrained_minimizer(target, P1, A, v; regularization)
+      E2, lambda2 = constrained_minimizer(target, P2, A, v; regularization)
+      @test E1 ≈ E2
+      @test lambda1 ≈ lambda2
+      @test constrained_optimal_value(target, P2, A, v; regularization) ≈ norm(E2)^2 + norm((A+E2)*v-v*lambda2)^2/regularization
+
       @test NearestUnstableMatrix.constrained_optimal_value_Euclidean_gradient_analytic(target, P1, A, v; regularization) ≈ 
             NearestUnstableMatrix.constrained_optimal_value_Euclidean_gradient_analytic(target, P2, A, v; regularization)
 
@@ -193,6 +201,15 @@ end
       @test abs(lambda - x'*(A+E)*x) < sqrt(eps(1.))
       @test norm((A+E)*x - x*lambda) < sqrt(eps(1.))
       @test abs(real(lambda)) < sqrt(eps(1.))
+      fval = constrained_optimal_value(target, P, A, x)
+      @assert fval ≈ norm(E)^2
+
+      regularization = 0.1
+      E, lambda = constrained_minimizer(target, P, A, x; regularization)
+      @test is_toeplitz(E)
+      @test abs(real(lambda)) < sqrt(eps(1.))
+      fval = constrained_optimal_value(target, P, A, x; regularization)
+      @assert fval ≈ norm(E)^2 + norm((A+E)*x-x*lambda)^2/regularization
 end
 
 # @testset "Grcar" begin

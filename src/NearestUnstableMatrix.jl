@@ -105,7 +105,7 @@ function compute_MvMvt(pert::ComplexSparsePerturbation, v; regularization=0.0)
     return Diagonal(d2)
 end
 
-function compute_Mv(pert::GeneralPerturbation, v; regularization=0.0)
+function compute_Mv(pert::GeneralPerturbation, v)
     return reduce(hcat, E*v for E in pert.EE)
 end
 
@@ -129,11 +129,11 @@ function precompute(pert::ComplexSparsePerturbation, v, regularization; warn=tru
         if warn && any(v[m2inv .== 0]  .!= 0)
             @info "Unfeasible problem, you will probably need to set lambda = 0"
         end
-    end 
+    end
     return m2inv
 end
 function precompute(pert::GeneralPerturbation, v, regularization; warn=true)
-    Mv = compute_Mv(pert, v; regularization)
+    Mv = compute_Mv(pert, v)
     if iszero(regularization)
         Mv_reg = Mv
     else
@@ -211,13 +211,24 @@ end
 
 Computes the optimal projected eigenvalue lambda for a given problem
 """
-lambda_opt(target::Singular, pert, Av, v, pc) = zero(eltype(v))
 function lambda_opt(target::Region, pert, Av, v, pc)
     denom = inverse_quadratic_form(pc, v)
     numer = inverse_bilinear_form(v, pc, Av)
     lambda = project(target, numer / denom)
     return lambda
 end
+lambda_opt(target::Singular, pert, Av, v, pc) = zero(eltype(v))
+
+"""
+    Computes lambda_opt from R⁻ᴴv
+"""
+function lambda_opt_from_invRtv(target, pert::GeneralPerturbation, Av, invRtv, pc)
+    b = pc.R' \ Av
+    a = invRtv
+    lambda = project(target, dot(a,b) / dot(a,a))
+    return lambda
+end
+lambda_opt_from_invRtv(target::Singular, pert::GeneralPerturbation, Av, invRtv, pc) = zero(eltype(v))
 
 """
     `E, lambda = constrained_minimizer(target, pert A, v; regularization=0.0)`
@@ -234,17 +245,56 @@ function constrained_minimizer(target, pert, A, v; regularization=0.0)
 end
 
 """
+    `AplusE, lambda = constrained_minimizer(target, pert alpha, v; regularization=0.0)`
+
+Computes the value of A+E, given as input alpha such that EE*alpha = A
+"""
+function constrained_minimizer(target, pert::GeneralPerturbation, alpha::AbstractVector, v; regularization=0.0)
+    Mv = compute_Mv(pert, v) # TODO: optimize out, we already compute it in `precompute`
+    Av = Mv * alpha
+    pc = precompute(pert, v, regularization; warn=!isa(target, Singular))
+    invRtv = pc.R' \ v
+    lambda = lambda_opt_from_invRtv(target, pert, Av, invRtv, pc)
+    alpha_ext = regularization==0.0 ? alpha : [alpha;zeros(length(v))] 
+    mv = pc.Q'*alpha_ext
+    mv[1:length(v)] = invRtv * lambda
+    alphaomega = (pc.Q*mv)[1:length(pert.EE)]
+    AplusE = reduce(+, E*m for (E,m) in zip(pert.EE, alphaomega))
+    return AplusE, lambda
+end
+
+"""
     `optval = constrained_optimal_value(target, pert, A, v)`
 
 Computes optval = min ||E||^2 s.t. (A+E)v = v*λ and the constraint that the sparsity pattern of E is P (boolean matrix)
 
 λ is chosen (inside the target region or on its border) to minimize `constrained_optimal_value(A, v, λ)`
 """
-function constrained_optimal_value(target, pert, A, v; regularization=0.0)
+function constrained_optimal_value(target, pert, A::AbstractMatrix, v; regularization=0.0)
     Av = ConstantMatrixProduct(A)(v)  # Av = A*v
     pc = precompute(pert, v, regularization; warn=!isa(target, Singular))
     lambda = lambda_opt(target, pert, Av, v, pc)
     z = v * lambda - Av
+    optval = inverse_quadratic_form(pc, z)
+    return optval
+end
+
+function constrained_optimal_value(target, pert::GeneralPerturbation, alpha::AbstractVector, v; regularization=0.0)
+    Mv = compute_Mv(pert, v) # TODO: optimize out, we already compute it in `precompute`
+    Av = Mv * alpha
+    pc = precompute(pert, v, regularization; warn=!isa(target, Singular))
+    invRtv = pc.R' \ v
+    lambda = lambda_opt_from_invRtv(target, pert, Av, invRtv, pc)
+    alpha_ext = regularization==0.0 ? alpha : [alpha;zeros(length(v))] 
+    mv = pc.Q'*alpha_ext
+    aux = pc.Q*(invRtv * lambda - mv[1:length(v)])
+    return sum(abs2, aux[1:length(pert.EE)])
+end
+
+
+function constrained_optimal_value_from_z(target, pert, A, z, lambda; regularization=0.0)
+    v = (A-lambda*I) \ z
+    pc = precompute(pert, v, regularization; warn=!isa(target, Singular))
     optval = inverse_quadratic_form(pc, z)
     return optval
 end
@@ -439,7 +489,7 @@ function nearest_unstable_penalty_method!(target, pert, A, x;
         regularization = regularization * regularization_damping
     end
 
-    return df
+    return x, df
 end
 
 
@@ -487,9 +537,9 @@ function nearest_unstable_augmented_Lagrangian_method!(target, pert, A, x; optim
             ]
         )
 
-        pc = precompute(pert, x, regularization; warn=false)
         #TODO: compare accuracy of this formula with the vanilla update y .= y + (1/regularization) * ((A+E)*x - x*lambda)
-        y .= inverse_quadratic_form_matvec(pc, A*x + regularization*y - x*lambda)         
+        # y .= inverse_quadratic_form_matvec(pc, A*x + regularization*y - x*lambda)         
+        y .= y + (1/regularization) * ((A+E)*x - x*lambda)
         regularization = regularization * regularization_damping
 
     end
