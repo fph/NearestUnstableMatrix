@@ -10,6 +10,8 @@ EE[3] = 1/sqrt(3) * Matrix(I, 3,3)
 EE[4] = EE[2]'
 EE[5] = EE[1]'
 
+p = length(EE)
+
 EEM = reduce(hcat, vec(Ei) for Ei in EE)
 
 v = [1;2;3.]
@@ -33,49 +35,72 @@ E = reduce(+, E*m for (E,m) in zip(EE, omega))
 
 @assert EEM'*EEM ≈ I
 
-pc = qr(Mv')
+pc = svd(Mv, full=true)
 
-@assert pc.Q*(pc.R' \ z) ≈ omega
+@assert pc.V[:,1:n]*(Diagonal(pc.S)\ (pc.U'*z)) ≈ omega
 
 @assert EEM * (alpha+omega) ≈ vec(A+E)
-v1 = pc.Q*(pc.R' \ (v*lambda))
-v2 = pc.Q[:,n+1:end]*pc.Q[:,n+1:end]' * alpha
+v1 = pc.V[:,1:n] * Diagonal(1 ./ pc.S)  * (pc.U' * v*lambda)
+v2 = pc.V*Diagonal([zeros(n); ones(p-n)])*pc.V'*alpha
 
 @assert v1 + v2 ≈ alpha + omega
 
 regularization = 0.1
-Mv_reg = hcat(Mv, sqrt(regularization)*I)
+# Mv_reg = hcat(Mv, sqrt(regularization)*I)
 
-pc_reg = qr(Mv_reg')
+# pc_reg = svd(Mv)
 
-omega_reg = Mv'*inv(Mv*Mv' + regularization*I)*z
+nv_reg = (Mv*Mv' + regularization*I) \ z
+omega_reg = Mv'*nv_reg
+nt = Diagonal((pc.S.^2 .+ regularization)) \ (pc.U' * z)
 
-@assert (pc_reg.Q*(pc_reg.R' \ z))[1:length(omega_reg)] ≈ omega_reg
+@assert pc.V[:,1:n]*(Diagonal(pc.S ./ (pc.S.^2 .+ regularization)) * (pc.U'*z)) ≈ omega_reg
 
 E_reg = reduce(+, E*m for (E,m) in zip(EE, omega_reg))
 
 @assert EEM * (alpha+omega_reg) ≈ vec(A+E_reg)
 
-v1_reg = [I zeros(5,3)] * (pc_reg.Q*(pc_reg.R' \ (v*lambda)))
+v1_reg = pc.V[:,1:n] * Diagonal(pc.S ./ (pc.S.^2 .+ regularization))  * (pc.U' * v*lambda)
 @assert v1_reg ≈ Mv'*inv(Mv*Mv'+regularization*I)*v*lambda
-v2_reg = [I zeros(5,3)] *(pc_reg.Q[:,n+1:end]*pc_reg.Q[1:length(EE),n+1:end]' * alpha)
-@assert v2_reg ≈ alpha - Mv'*inv(Mv*Mv'+regularization*I)*Mv*alpha
-@assert v1_reg + v2_reg ≈ alpha + omega_reg
+v2_reg = pc.V[:,1:n]*Diagonal(regularization ./ (pc.S.^2 .+ regularization))*(pc.V[:,1:n]'*alpha)
+v3_reg = pc.V[:, n+1:end] * (pc.V[:, n+1:end]' * alpha)
+@assert v2_reg + v3_reg ≈ alpha - Mv'*inv(Mv*Mv'+regularization*I)*Mv*alpha
+@assert v1_reg + v2_reg + v3_reg ≈ alpha + omega_reg
 
-mv = pc_reg.Q'*[alpha;zeros(n)]
-@assert (pc_reg.Q * mv[1:n])[1:length(EE)] ≈ Mv'*inv(Mv*Mv'+regularization*I)*Mv*alpha
+w2_reg = pc.U * Diagonal(pc.S .* regularization ./ (pc.S.^2 .+ regularization))* pc.V[:, 1:n]' * alpha
+w1_reg = -pc.U*Diagonal(regularization ./ (pc.S.^2 .+ regularization))*pc.U'*v*lambda
 
-@assert (pc_reg.Q * (pc_reg.R' \ v * lambda - mv[1:n]))[1:length(EE)] ≈ Mv'*inv(Mv*Mv'+regularization*I)*(v*lambda - Mv*alpha)
+@assert w1_reg + w2_reg ≈ (A+E_reg)*v - v*lambda
 
-@show norm(Mv'*inv(Mv*Mv'+regularization*I)*(v*lambda - Mv*alpha))
-@show norm((pc_reg.Q * (pc_reg.R' \ v * lambda - mv[1:n]))[1:length(EE)])
-@show norm(E_reg)
+@assert (v*lambda - (A+E_reg)*v) / regularization ≈ pc.U * nt
 
 # @show mv
 # @show sum(abs2, mv[[1,2,3]])
 # @show sum(abs2, Mv'*inv(Mv*Mv'+regularization*I)*Mv*alpha)
 
+pert = NearestUnstableMatrix.GeneralPerturbation(EE)
+target = NearestUnstableMatrix.Singular()
+x0 = project(Manifolds.Sphere(size(A,1) - 1, ℂ), randn(Complex{eltype(A)}, size(A, 1)))
+x = copy(x0); df_lag = NearestUnstableMatrix.nearest_unstable_augmented_Lagrangian_method!(target, pert, A, x,
+           outer_iterations=60, regularization_damping = 0.85,
+           debug=[:Iteration,(:Change, "|Δp|: %1.9f |"), 
+                   (:Cost, " F(x): %1.11f | "), 
+                   (:GradientNorm, " ||∇F(x)||: %1.11f | "),  
+                   "\n", 500, :Stop], 
+                   stopping_criterion=StopWhenAny(StopAfterIteration(30000), 
+                                           StopWhenGradientNormLess(10^(-6))))
 
-mv[1:n] = pc_reg.R' \ v * lambda
-@assert alpha+omega_reg ≈ (pc_reg.Q*mv)[1:length(EE)]
 
+
+
+v = x                                           
+Mv = reduce(hcat, Ei*v for Ei in EE)
+pc = svd(Mv, full=true)
+E_reg, lambda = constrained_minimizer(target, pert, A, x)
+                                           
+v1_reg = pc.V[:,1:n] * Diagonal(pc.S ./ (pc.S.^2 .+ regularization))  * (pc.U' * v*lambda)
+@assert v1_reg ≈ Mv'*inv(Mv*Mv'+regularization*I)*v*lambda
+v2_reg = pc.V[:,1:n]*Diagonal(regularization ./ (pc.S.^2 .+ regularization))*(pc.V[:,1:n]'*alpha)
+v3_reg = pc.V[:, n+1:end] * (pc.V[:, n+1:end]' * alpha)
+@assert v2_reg + v3_reg ≈ alpha - Mv'*inv(Mv*Mv'+regularization*I)*Mv*alpha
+@assert v1_reg + v2_reg + v3_reg ≈ alpha + omega_reg

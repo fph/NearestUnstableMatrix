@@ -66,7 +66,7 @@ abstract type PerturbationStructure end
 """
     Type for a complex sparse perturbation with sparsity structure P. P should be a BitMatrix or something compatible.
 """
-struct ComplexSparsePerturbation{T} <: PerturbationStructure
+struct ComplexSparsePerturbation{T} <: PerturbationStructure where T <: AbstractMatrix{Bool}
     P::T
 end
 
@@ -538,7 +538,7 @@ function nearest_unstable_augmented_Lagrangian_method!(target, pert, A, x; optim
         )
 
         #TODO: compare accuracy of this formula with the vanilla update y .= y + (1/regularization) * ((A+E)*x - x*lambda)
-        # y .= inverse_quadratic_form_matvec(pc, A*x + regularization*y - x*lambda)         
+        # y .= inverse_quadratic_form_matvec(pc, A*x + regularization*y - x*lambda)
         y .= y + (1/regularization) * ((A+E)*x - x*lambda)
         regularization = regularization * regularization_damping
 
