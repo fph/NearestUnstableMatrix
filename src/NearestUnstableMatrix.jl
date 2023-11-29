@@ -77,6 +77,12 @@ struct GeneralPerturbation{T} <: PerturbationStructure where T<:AbstractVector
     EE::T
 end
 
+function GeneralPerturbation(pert::ComplexSparsePerturbation)
+    m, n = size(pert.P)
+    (ii, jj, _) = findnz(sparse(pert.P))
+    EE = collect(sparse([i], [j], [1.], m, n) for (i, j) in zip(ii, jj))
+    P2 = GeneralPerturbation(EE)
+end
 
 """
     toeplitz_perturbation(n)

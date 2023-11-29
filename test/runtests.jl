@@ -151,9 +151,7 @@ end
       v = normalize(rand(ComplexF64, n))
       
       P1 = ComplexSparsePerturbation(A.!=0)
-      (ii, jj, _) = findnz(sparse(A))
-      EE = collect(sparse([i], [j], [1.], n, n) for (i, j) in zip(ii, jj))
-      P2 = GeneralPerturbation(EE)
+      P2 = GeneralPerturbation(P1)
       
       @test constrained_optimal_value(target, P1, A, v) ≈ constrained_optimal_value(target, P2, A, v)
       E1, lambda1 = constrained_minimizer(target, P1, A, v)
