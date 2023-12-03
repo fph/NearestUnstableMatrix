@@ -255,8 +255,12 @@ end
 
 Computes the value of A+E
 """
-function constrained_AplusE(target, pert::ComplexSparsePerturbation, A, v; regularization=0.0)
-    Av = A*v
+function constrained_AplusE(target, pert::ComplexSparsePerturbation, A, v, y=nothing; regularization=0.0)
+    if y===nothing
+        Av = A*v
+    else
+        Av = A*v + regularization * y
+    end
     pc = precompute(pert, v, regularization; warn=!isa(target, Singular))
     lambda = lambda_opt(target, pert, Av, v, pc)
     t1 = (v*lambda) .* pc

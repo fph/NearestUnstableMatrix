@@ -138,6 +138,10 @@ end
     y = randn(ComplexF64, n)
     @test NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_zygote(target, P, A, v, y) ≈ 
           NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_analytic(target, P, A, v, y)
+    E, lambda = NearestUnstableMatrix.reduced_augmented_Lagrangian_minimizer(target, P, A, v, y)
+    AplusE, lambda2 = constrained_AplusE(target, P, A, v, y)
+    @assert lambda ≈ lambda2
+    @assert A+E ≈ AplusE
 
     # test sparse
 
