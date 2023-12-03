@@ -9,7 +9,7 @@ using ChainRulesCore
 using ChainRulesCore: ProjectTo, @not_implemented, @thunk
 import Manifolds: project
 
-export constrained_minimizer, constrained_optimal_value, 
+export constrained_minimizer, constrained_optimal_value, constrained_AplusE,
     realgradient, realgradient_zygote,
     InsideDisc, OutsideDisc, NonHurwitz, NonSchur,  RightOf, Singular,
     precompute, ComplexSparsePerturbation, GeneralPerturbation,
@@ -251,22 +251,22 @@ function constrained_minimizer(target, pert, A, v; regularization=0.0)
 end
 
 """
-    `AplusE, lambda = constrained_minimizer(target, pert alpha, v; regularization=0.0)`
+    `AplusE, lambda = constrained_AplusE(target, pert, alpha, v; regularization=0.0)`
 
-Computes the value of A+E, given as input alpha such that EE*alpha = A
+Computes the value of A+E
 """
-function constrained_minimizer(target, pert::GeneralPerturbation, alpha::AbstractVector, v; regularization=0.0)
-    Mv = compute_Mv(pert, v) # TODO: optimize out, we already compute it in `precompute`
-    Av = Mv * alpha
+function constrained_AplusE(target, pert::ComplexSparsePerturbation, A, v; regularization=0.0)
+    Av = A*v
     pc = precompute(pert, v, regularization; warn=!isa(target, Singular))
-    invRtv = pc.R' \ v
-    lambda = lambda_opt_from_invRtv(target, pert, Av, invRtv, pc)
-    alpha_ext = regularization==0.0 ? alpha : [alpha;zeros(length(v))] 
-    mv = pc.Q'*alpha_ext
-    mv[1:length(v)] = invRtv * lambda
-    alphaomega = (pc.Q*mv)[1:length(pert.EE)]
-    AplusE = reduce(+, E*m for (E,m) in zip(pert.EE, alphaomega))
-    return AplusE, lambda
+    lambda = lambda_opt(target, pert, Av, v, pc)
+    t1 = (v*lambda) .* pc
+    vP = v' .* pert.P  # matrix with the nonzero structure of A but elements conj(v_j)
+    E1 = t1 .* vP # broadcasting
+    s2 = pert.P * abs2.(v)
+    projA = A - ((Av) ./ s2) .* vP # this projects A on Im(pc.V)^⟂
+    # we first subtract this projection in the hope of getting exact zeros when needed, and avoid losing accuracy
+    AplusE = projA + E1 + (Diagonal(regularization ./ (s2 .+ regularization) ./ s2) *Av) .* vP
+    return AplusE, lambda    
 end
 
 """
