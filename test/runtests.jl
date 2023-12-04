@@ -35,7 +35,7 @@ end
     @test E ≈ [-1.32 -1.76; -3 -4]
     @test lambda == 0
     @test constrained_optimal_value(target, P, A, v) ≈ norm(E)^2
-    AplusE, lambda2 = constrained_AplusE(target, P, A, v)
+    AplusE, lambda2, nv = constrained_AplusE(target, P, A, v)
     @test AplusE ≈ A+E
     @test lambda2 ≈ lambda
     @test NearestUnstableMatrix.constrained_optimal_value_Euclidean_gradient_zygote(target, P, A, v) ≈ 
@@ -47,7 +47,7 @@ end
     regularization = 0.5
     E, lambda = constrained_minimizer(target, P, A, v; regularization)
     @test constrained_optimal_value(target, P, A, v; regularization) ≈ norm(E)^2 + norm((A+E)*v-v*lambda)^2/regularization
-    AplusE, lambda2 = constrained_AplusE(target, P, A, v; regularization)
+    AplusE, lambda2, nv = constrained_AplusE(target, P, A, v; regularization)
     @test AplusE ≈ A+E
     @test lambda2 ≈ lambda
     @test NearestUnstableMatrix.constrained_optimal_value_Euclidean_gradient_zygote(target, P, A, v; regularization) ≈ 
@@ -68,7 +68,7 @@ end
     @test (A+E)*v ≈ v*lambda
     @test real(lambda) >= 0
     @test constrained_optimal_value(target, P, A, v) ≈ norm(E)^2
-    AplusE, lambda2 = constrained_AplusE(target, P, A, v)
+    AplusE, lambda2, nv = constrained_AplusE(target, P, A, v)
     @test AplusE ≈ A+E
     @test lambda2 ≈ lambda
     @test NearestUnstableMatrix.constrained_optimal_value_Euclidean_gradient_zygote(target, P, A, v) ≈ 
@@ -82,7 +82,7 @@ end
     E, lambda = constrained_minimizer(target, P, A, v; regularization)
     @test real(lambda) >= 0
     @test constrained_optimal_value(target, P, A, v; regularization) ≈ norm(E)^2 + norm((A+E)*v-v*lambda)^2/regularization
-    AplusE, lambda2 = constrained_AplusE(target, P, A, v; regularization)
+    AplusE, lambda2, nv = constrained_AplusE(target, P, A, v; regularization)
     @test AplusE ≈ A+E
     @test lambda2 ≈ lambda
     @test NearestUnstableMatrix.constrained_optimal_value_Euclidean_gradient_zygote(target, P, A, v; regularization) ≈ 
@@ -106,7 +106,7 @@ end
     @test abs(real(lambda)) < sqrt(eps(1.))
     @test abs(maximum(real(eigvals(A+E)))) < sqrt(eps(1.))
     @test constrained_optimal_value(target, P, A, v) ≈ norm(E)^2
-    AplusE, lambda2 = constrained_AplusE(target, P, A, v)
+    AplusE, lambda2, nv = constrained_AplusE(target, P, A, v)
     @test AplusE ≈ A+E
     @test lambda2 ≈ lambda
     @test NearestUnstableMatrix.constrained_optimal_value_Euclidean_gradient_zygote(target, P, A, v) ≈ 
@@ -114,6 +114,13 @@ end
     y = randn(ComplexF64, n)
     @test NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_zygote(target, P, A, v, y) ≈ 
           NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_analytic(target, P, A, v, y)
+
+    @test NearestUnstableMatrix.constrained_optimal_value_Euclidean_gradient_analytic(target, P, A, v) ≈
+          NearestUnstableMatrix.constrained_gradient_alternative(target, P, A, v)
+
+    @test NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_analytic(target, P, A, v, y) ≈
+          NearestUnstableMatrix.constrained_gradient_alternative(target, P, A, v, y)
+
 
     # test Disc
 
@@ -130,7 +137,7 @@ end
     @test abs(lambda) ≈ 1.
     @test maximum(abs.(eigvals(A+E))) ≈ 1.
     @test constrained_optimal_value(target, P, A, v) ≈ norm(E)^2
-    AplusE, lambda2 = constrained_AplusE(target, P, A, v)
+    AplusE, lambda2, nv = constrained_AplusE(target, P, A, v)
     @test AplusE ≈ A+E
     @test lambda2 ≈ lambda
     @test NearestUnstableMatrix.constrained_optimal_value_Euclidean_gradient_zygote(target, P, A, v) ≈ 
@@ -139,7 +146,7 @@ end
     @test NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_zygote(target, P, A, v, y) ≈ 
           NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_analytic(target, P, A, v, y)
     E, lambda = NearestUnstableMatrix.reduced_augmented_Lagrangian_minimizer(target, P, A, v, y)
-    AplusE, lambda2 = constrained_AplusE(target, P, A, v, y)
+    AplusE, lambda2, nv = constrained_AplusE(target, P, A, v, y)
     @assert lambda ≈ lambda2
     @assert A+E ≈ AplusE
 
@@ -158,7 +165,7 @@ end
     @test abs(lambda) ≈ 1.
     @test maximum(abs.(eigvals(Array(A+E)))) ≈ 1.
     @test constrained_optimal_value(target, P, A, v) ≈ norm(E)^2
-    AplusE, lambda2 = constrained_AplusE(target, P, A, v)
+    AplusE, lambda2, nv = constrained_AplusE(target, P, A, v)
     @test AplusE ≈ A+E
     @test lambda2 ≈ lambda
     @test NearestUnstableMatrix.constrained_optimal_value_Euclidean_gradient_zygote(target, P, A, v) ≈ 

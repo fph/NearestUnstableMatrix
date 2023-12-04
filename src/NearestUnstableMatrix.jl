@@ -263,15 +263,23 @@ function constrained_AplusE(target, pert::ComplexSparsePerturbation, A, v, y=not
     end
     pc = precompute(pert, v, regularization; warn=!isa(target, Singular))
     lambda = lambda_opt(target, pert, Av, v, pc)
+    nv = pc .* (lambda*v - Av)
     t1 = (v*lambda) .* pc
     vP = v' .* pert.P  # matrix with the nonzero structure of A but elements conj(v_j)
     E1 = t1 .* vP # broadcasting
     s2 = pert.P * abs2.(v)
     projA = A - ((Av) ./ s2) .* vP # this projects A on Im(pc.V)^⟂
-    # we first subtract this projection in the hope of getting exact zeros when needed, and avoid losing accuracy
+    # we subtract this projection before the next addition in the hope of getting
+    # exact zeros where needed, and avoid losing accuracy.
     AplusE = projA + E1 + (Diagonal(regularization ./ (s2 .+ regularization) ./ s2) *Av) .* vP
-    return AplusE, lambda    
+    return AplusE, lambda, nv
 end
+
+function constrained_gradient_alternative(target, pert, A, v, y=nothing; regularization=0.0)
+    AplusE, lambda, nv = constrained_AplusE(target, pert, A, v, y; regularization)
+    return 2(nv*lambda' - AplusE'*nv)
+end
+
 
 """
     `optval = constrained_optimal_value(target, pert, A, v)`
