@@ -477,6 +477,9 @@ function nearest_unstable_penalty_method!(target, pert, A, x;
     
     for k = 1:outer_iterations
         @show k
+        if any(isnan.(x))
+            break
+        end
 
         E, lambda = constrained_minimizer(target, pert, A, x; regularization)
         # @show original_function_value = constrained_optimal_value(target, A, x)
@@ -536,6 +539,9 @@ function nearest_unstable_augmented_Lagrangian_method!(target, pert, A, x; optim
     df.augmented_Lagrangian = [reduced_augmented_Lagrangian(target, pert, A, x, y; regularization) - regularization*norm(y)^2]
     
     for k = 1:outer_iterations        
+        if any(isnan.(x))
+            break
+        end
         @show k        
         f(M, v) = reduced_augmented_Lagrangian(target, pert, A, v, y; regularization)
         function g_zygote(M, v)
@@ -584,6 +590,10 @@ function nearest_unstable_augmented_Lagrangian_method_optim(target, pert, A, x0;
             @show regularization
             @show k
         end
+        if any(isnan.(x))
+            break
+        end
+
 
         # We start with a dual gradient ascent step from x0 to get a plausible y0
         # dual gradient ascent.
