@@ -462,7 +462,7 @@ function nearest_unstable_penalty_method!(target, pert, A, x;
                         regularization_damping = 0.75, kwargs...)
 
     n = size(A,1)
-    M = Manifolds.Sphere(n-1, eltype(x0)<:Complex ? ℂ : ℝ)
+    M = Manifolds.Sphere(n-1, eltype(x)<:Complex ? ℂ : ℝ)
     regularization = starting_regularization
 
     E, lambda = constrained_minimizer(target, pert, A, x; regularization)
@@ -522,7 +522,7 @@ function nearest_unstable_augmented_Lagrangian_method!(target, pert, A, x; optim
                                                     regularization_damping = 0.8,
                                                     kwargs...)
     n = size(A,1)
-    M = Manifolds.Sphere(n-1, eltype(x0)<:Complex ? ℂ : ℝ)
+    M = Manifolds.Sphere(n-1, eltype(x)<:Complex ? ℂ : ℝ)
     y = zero(x)
     regularization = starting_regularization
 
