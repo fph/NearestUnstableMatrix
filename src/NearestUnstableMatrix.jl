@@ -138,103 +138,30 @@ function precompute(pert::ComplexSparsePerturbation, v, regularization; warn=tru
     end
     return m2inv
 end
-function precompute(pert::GeneralPerturbation, v, regularization; warn=true)
-    Mv = compute_Mv(pert, v)
-    if iszero(regularization)
-        Mv_reg = Mv
-    else
-        Mv_reg = hcat(Mv, sqrt(regularization)*I)
-    end
-    return qr(Mv_reg')
-end
-
-"""
-    Computes the value of the quadratic form xᴴ(MᵥMᵥᴴ+λI)⁻¹x, 
-"""
-function inverse_quadratic_form(pc::LinearAlgebra.QRCompactWY, x)
-    a = pc.R' \ x
-    return sum(abs2, a)
-end
-function inverse_quadratic_form(pc::Vector, x)
-    return sum(abs2.(x) .* pc)
-end
-
-"""
-    Computes the value of the bilinear form yᴴ(MᵥMᵥᴴ+λI)⁻¹x, 
-"""
-function inverse_bilinear_form(y, pc::LinearAlgebra.QRCompactWY, x)
-    a = pc.R' \ x
-    b = pc.R' \ y
-    return dot(b, a)
-end
-function inverse_bilinear_form(y, pc::Vector, x)
-    sum((conj.(y)) .* (x .* pc))
-end
-
-"""
-Computes (MᵥMᵥᴴ+λI)⁻¹x
-"""
-function inverse_quadratic_form_matvec(pc::LinearAlgebra.QRCompactWY, z)
-    return pc.R \ (pc.R' \ z)
-end
-function inverse_quadratic_form_matvec(pc::Vector, z)
-    return z .* pc
-end
-
-"""
-    Computes the smallest E s.t. Ev = z  
-"""
-function optimal_E(pert::GeneralPerturbation, v, z, pc)
-    omega = (pc.Q*(pc.R' \ z))[1:length(pert.EE)]
-    E = reduce(+, E*m for (E,m) in zip(pert.EE, omega))
-    return E
-end
-function optimal_E(pert::ComplexSparsePerturbation, v, z, pc)
-    t = z .* pc
-    E = t .* (v' .* pert.P)  # the middle .* broadcasts column * row    
-    return E
-end
-
-"""
-    Return ∇ zᴴ(MᵥMᵥᴴ)⁻¹z,
-    for a vector z with dz/dv = (A-λ I)  --- typically, z = (A-λI)v + εy), to account for the extended Lagrangian formulation
-"""
-function analytic_gradient(pert::GeneralPerturbation, A, v, z, lambda, pc)
-    invRtz = pc.R' \ z
-    omega = (pc.Q*invRtz)[1:length(pert.EE)]
-    nv = pc.R \ invRtz
-    grad = 2(A'*nv - nv*lambda' - sum(conj(m)*(E'*nv) for (E,m) in zip(pert.EE, omega)))
-    return grad
-end
-function analytic_gradient(pert::ComplexSparsePerturbation, A, v, z, lambda, pc)
-    nv = z .* pc
-    grad = 2(A'*nv - nv*lambda' - (pert.P' * abs2.(nv)) .* v)
-    return grad
-end
 
 """
     lambda_opt(target, pert, Av, v, pc)
 
 Computes the optimal projected eigenvalue lambda for a given problem
 """
-function lambda_opt(target::Region, pert, Av, v, pc)
-    denom = inverse_quadratic_form(pc, v)
-    numer = inverse_bilinear_form(v, pc, Av)
+function lambda_opt(target::Region, pert, Av, v, pc::AbstractVector)
+    nv = v .* pc
+    denom = nv' * v
+    numer = nv' * Av
     lambda = project(target, numer / denom)
     return lambda
 end
-lambda_opt(target::Singular, pert, Av, v, pc) = zero(eltype(v))
-
-"""
-    Computes lambda_opt from R⁻ᴴv
-"""
-function lambda_opt_from_invRtv(target, pert::GeneralPerturbation, Av, invRtv, pc)
-    b = pc.R' \ Av
-    a = invRtv
-    lambda = project(target, dot(a,b) / dot(a,a))
+function lambda_opt(target::Region, pert, Av, v, pc::SVD; regularization=0.0)
+    Uv = pc.U'*v
+    UAv = pc.U'*Av
+    nv = Diagonal(pc.S.^2 .+ regularization) \ Uv
+    denom = nv' * Uv
+    numer = nv' * UAv
+    lambda = project(target, numer / denom)
     return lambda
 end
-lambda_opt_from_invRtv(target::Singular, pert::GeneralPerturbation, Av, invRtv, pc) = zero(eltype(v))
+lambda_opt(target::Singular, pert, Av, v, pc::AbstractVector; regularization=0.0) = zero(eltype(v))
+lambda_opt(target::Singular, pert, Av, v, pc::SVD; regularization=0.0) = zero(eltype(v))
 
 """
     `E, lambda = constrained_minimizer(target, pert A, v; regularization=0.0)`
@@ -246,7 +173,27 @@ function constrained_minimizer(target, pert, A, v; regularization=0.0)
     pc = precompute(pert, v, regularization; warn=!isa(target, Singular))
     lambda = lambda_opt(target, pert, Av, v, pc)
     z = v * lambda - Av
-    E = optimal_E(pert, v, z, pc)
+    t = z .* pc
+    E = t .* (v' .* pert.P)  # the middle .* broadcasts column * row
+    return E, lambda
+end
+function constrained_minimizer(target, pert::GeneralPerturbation, A, v, y=nothing; regularization=0.0)
+    if y===nothing
+        Av = A*v
+    else
+        Av = A*v + regularization * y
+    end
+    Mv = compute_Mv(pert, v)
+    pc = svd(Mv)
+    Uv = pc.U'*v
+    UAv = pc.U'*Av
+    nv0 = Diagonal(pc.S.^2 .+ regularization) \ Uv
+    denom = nv0' * Uv
+    numer = nv0' * UAv
+    lambda = project(target, numer / denom)
+    t = Uv*lambda - UAv
+    omega = pc.V * (Diagonal(pc.S ./ (pc.S.^2 .+ regularization)) * t)
+    E = reduce(+, E*m for (E,m) in zip(pert.EE, omega))
     return E, lambda
 end
 
@@ -289,33 +236,31 @@ Computes optval = min ||E||^2 s.t. (A+E)v = v*λ and the constraint that the spa
 
 λ is chosen (inside the target region or on its border) to minimize `constrained_optimal_value(A, v, λ)`
 """
-function constrained_optimal_value(target, pert, A::AbstractMatrix, v; regularization=0.0)
+function constrained_optimal_value(target, pert, A, v; regularization=0.0)
     Av = ConstantMatrixProduct(A)(v)  # Av = A*v
     pc = precompute(pert, v, regularization; warn=!isa(target, Singular))
     lambda = lambda_opt(target, pert, Av, v, pc)
     z = v * lambda - Av
-    optval = inverse_quadratic_form(pc, z)
+    optval = sum(abs2.(z) .* pc)
     return optval
 end
 
-function constrained_optimal_value(target, pert::GeneralPerturbation, alpha::AbstractVector, v; regularization=0.0)
-    Mv = compute_Mv(pert, v) # TODO: optimize out, we already compute it in `precompute`
-    Av = Mv * alpha
-    pc = precompute(pert, v, regularization; warn=!isa(target, Singular))
-    invRtv = pc.R' \ v
-    lambda = lambda_opt_from_invRtv(target, pert, Av, invRtv, pc)
-    alpha_ext = regularization==0.0 ? alpha : [alpha;zeros(length(v))] 
-    mv = pc.Q'*alpha_ext
-    aux = pc.Q*(invRtv * lambda - mv[1:length(v)])
-    return sum(abs2, aux[1:length(pert.EE)])
-end
-
-
-function constrained_optimal_value_from_z(target, pert, A, z, lambda; regularization=0.0)
-    v = (A-lambda*I) \ z
-    pc = precompute(pert, v, regularization; warn=!isa(target, Singular))
-    optval = inverse_quadratic_form(pc, z)
-    return optval
+function constrained_optimal_value(target, pert::GeneralPerturbation, A, v, y=nothing; regularization=0.0)
+    if y===nothing
+        Av = ConstantMatrixProduct(A)(v)
+    else
+        Av = ConstantMatrixProduct(A)(v) + regularization * y
+    end
+    Mv = compute_Mv(pert, v)
+    pc = svd(Mv)
+    Uv = pc.U'*v
+    UAv = pc.U'*Av
+    nv = Diagonal(pc.S.^2 .+ regularization) \ Uv
+    denom = nv' * Uv
+    numer = nv' * UAv
+    lambda = project(target, numer / denom)
+    t = Uv*lambda - UAv
+    return sum(abs2.(t) ./ (pc.S.^2 .+ regularization))
 end
 
 function constrained_optimal_value_Euclidean_gradient_zygote(target, pert, A, v; regularization=0.0)
@@ -327,23 +272,30 @@ function constrained_optimal_value_Euclidean_gradient_analytic(target, pert, A, 
     pc = precompute(pert, v, regularization; warn=!isa(target, Singular))
     lambda = lambda_opt(target, pert, Av, v, pc)
     z = Av - v*lambda
-    return analytic_gradient(pert, A, v, z, lambda, pc)
+    nv = z .* pc
+    grad = 2(A'*nv - nv*lambda' - (pert.P' * abs2.(nv)) .* v)
+    return grad
 end
 
-
-# """
-# Returns w such that constrained_optimal_value = norm(w)^2, for use in Levenberg-Marquardt-type algorithms
-# """
-# function constrained_optimal_value_LM(target, pert, A, v; regularization=0.0)
-#     Av = MatrixWrapper(A)(v)  # Av = A*v
-#     pc = precompute(pert, v, regularization; warn=!isa(target, Singular))
-#     m2inv = pc
-#     lambda = lambda_opt(target, pert, Av, v, m2inv)
-#     w = v * lambda
-#     z = w - Av
-#     fval = z .* sqrt.(m2inv)
-#     return fval
-# end
+function constrained_optimal_value_Euclidean_gradient_analytic(target, pert::GeneralPerturbation, A, v, y=nothing; regularization=0.0)
+    if y===nothing
+        Av = ConstantMatrixProduct(A)(v)
+    else
+        Av = ConstantMatrixProduct(A)(v) + regularization * y
+    end
+    Mv = compute_Mv(pert, v)
+    pc = svd(Mv)
+    Uv = pc.U'*v
+    UAv = pc.U'*Av
+    nv0 = Diagonal(pc.S.^2 .+ regularization) \ Uv
+    denom = nv0' * Uv
+    numer = nv0' * UAv
+    lambda = project(target, numer / denom)
+    t = Uv*lambda - UAv
+    omega = pc.V * (Diagonal(pc.S ./ (pc.S.^2 .+ regularization)) * t)    
+    nv = pc.U * (Diagonal(1 ./ (pc.S.^2 .+ regularization)) * t)
+    return 2(nv*lambda' - A'*nv - sum(conj(m)*(E'*nv) for (E,m) in zip(pert.EE, omega)))
+end
 
 """
     Returns the augmented Lagrangian without the 1/reg*||y||^2 term, which is useless for minimization since it is constant
@@ -353,18 +305,23 @@ function reduced_augmented_Lagrangian(target, pert, A, v, y; regularization=0.0)
     pc = precompute(pert, v, regularization; warn=!isa(target, Singular))
     lambda = lambda_opt(target, pert, Av_mod, v, pc)
     z = v * lambda - Av_mod
-    optval = inverse_quadratic_form(pc, z)
+    optval = sum(abs2.(z) .* pc)
     return optval
 end
+reduced_augmented_Lagrangian(target, pert::GeneralPerturbation, A, v, y; regularization=0.0) =
+    constrained_optimal_value(target, pert, A, v, y; regularization)
 
 function reduced_augmented_Lagrangian_minimizer(target, pert, A, v, y; regularization=0.0)
     Av_mod = ConstantMatrixProduct(A)(v) + regularization*y
     pc =  precompute(pert, v, regularization; warn=!isa(target, Singular))
     lambda = lambda_opt(target, pert, Av_mod, v, pc)
     z = v * lambda - Av_mod
-    E = optimal_E(pert, v, z, pc)
+    t = z .* pc
+    E = t .* (v' .* pert.P)  # the middle .* broadcasts column * row    
     return E, lambda
 end
+reduced_augmented_Lagrangian_minimizer(target, pert::GeneralPerturbation, A, v, y; regularization=0.0) =
+    constrained_minimizer(target, pert, A, v, y; regularization)
 
 function reduced_augmented_Lagrangian_Euclidean_gradient_zygote(target, pert, A, v, y; regularization=0.0)
     return first(realgradient_zygote(x -> reduced_augmented_Lagrangian(target, pert, A, x, y; regularization), v))
@@ -375,8 +332,12 @@ function reduced_augmented_Lagrangian_Euclidean_gradient_analytic(target, pert, 
     pc = precompute(pert, v, regularization; warn=!isa(target, Singular))
     lambda = lambda_opt(target, pert, Av_mod, v, pc)
     z = Av_mod - v*lambda
-    return analytic_gradient(pert, A, v, z, lambda, pc)
+    nv = z .* pc
+    grad = 2(A'*nv - nv*lambda' - (pert.P' * abs2.(nv)) .* v)
+    return grad
 end
+reduced_augmented_Lagrangian_Euclidean_gradient_analytic(target, pert::GeneralPerturbation, A, v, y; regularization=0.0) =
+    constrained_optimal_value_Euclidean_gradient_analytic(target, pert, A, v, y; regularization)
 
 """
     `g = realgradient(f, cv)`
@@ -563,7 +524,7 @@ function nearest_unstable_augmented_Lagrangian_method!(target, pert, A, x; optim
         )
 
         #TODO: compare accuracy of this formula with the vanilla update y .= y + (1/regularization) * ((A+E)*x - x*lambda)
-        # y .= inverse_quadratic_form_matvec(pc, A*x + regularization*y - x*lambda)
+        # y .= pc .* (A*x + regularization*y - x*lambda)
         y .= y + (1/regularization) * ((A+E)*x - x*lambda)
         regularization = regularization * regularization_damping
 
