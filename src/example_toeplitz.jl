@@ -96,7 +96,7 @@ x = copy(x0); df_lag = NearestUnstableMatrix.nearest_unstable_augmented_Lagrangi
 v = x                                           
 Mv = reduce(hcat, Ei*v for Ei in EE)
 pc = svd(Mv, full=true)
-E_reg, lambda = constrained_minimizer(target, pert, A, x)
+E_reg, lambda = minimizer(target, pert, A, x)
                                            
 v1_reg = pc.V[:,1:n] * Diagonal(pc.S ./ (pc.S.^2 .+ regularization))  * (pc.U' * v*lambda)
 @assert v1_reg ≈ Mv'*inv(Mv*Mv'+regularization*I)*v*lambda

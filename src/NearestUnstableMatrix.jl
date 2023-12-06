@@ -9,7 +9,7 @@ using ChainRulesCore
 using ChainRulesCore: ProjectTo, @not_implemented, @thunk
 import Manifolds: project
 
-export constrained_minimizer, constrained_optimal_value, constrained_AplusE,
+export minimizer, optimal_value, minimizer_AplusE,
     realgradient, realgradient_zygote,
     InsideDisc, OutsideDisc, NonHurwitz, NonSchur,  RightOf, Singular,
     precompute, ComplexSparsePerturbation, GeneralPerturbation,
@@ -151,24 +151,14 @@ function lambda_opt(target::Region, pert, Av, v, pc::AbstractVector)
     lambda = project(target, numer / denom)
     return lambda
 end
-function lambda_opt(target::Region, pert, Av, v, pc::SVD; regularization=0.0)
-    Uv = pc.U'*v
-    UAv = pc.U'*Av
-    nv = Diagonal(pc.S.^2 .+ regularization) \ Uv
-    denom = nv' * Uv
-    numer = nv' * UAv
-    lambda = project(target, numer / denom)
-    return lambda
-end
 lambda_opt(target::Singular, pert, Av, v, pc::AbstractVector; regularization=0.0) = zero(eltype(v))
-lambda_opt(target::Singular, pert, Av, v, pc::SVD; regularization=0.0) = zero(eltype(v))
 
 """
-    `E, lambda = constrained_minimizer(target, pert A, v; regularization=0.0)`
+    `E, lambda = minimizer(target, pert A, v; regularization=0.0)`
 
-Computes the argmin corresponding to `constrained_optimal_value`
+Computes the argmin corresponding to `optimal_value`
 """
-function constrained_minimizer(target, pert, A, v; regularization=0.0)
+function minimizer(target, pert, A, v; regularization=0.0)
     Av = ConstantMatrixProduct(A)(v)  # Av = A*v
     pc = precompute(pert, v, regularization; warn=!isa(target, Singular))
     lambda = lambda_opt(target, pert, Av, v, pc)
@@ -177,7 +167,7 @@ function constrained_minimizer(target, pert, A, v; regularization=0.0)
     E = t .* (v' .* pert.P)  # the middle .* broadcasts column * row
     return E, lambda
 end
-function constrained_minimizer(target, pert::GeneralPerturbation, A, v, y=nothing; regularization=0.0)
+function minimizer(target, pert::GeneralPerturbation, A, v, y=nothing; regularization=0.0)
     if y===nothing
         Av = A*v
     else
@@ -198,11 +188,11 @@ function constrained_minimizer(target, pert::GeneralPerturbation, A, v, y=nothin
 end
 
 """
-    `AplusE, lambda = constrained_AplusE(target, pert, alpha, v; regularization=0.0)`
+    `AplusE, lambda = minimizer_AplusE(target, pert, alpha, v; regularization=0.0)`
 
 Computes the value of A+E
 """
-function constrained_AplusE(target, pert::ComplexSparsePerturbation, A, v, y=nothing; regularization=0.0)
+function minimizer_AplusE(target, pert::ComplexSparsePerturbation, A, v, y=nothing; regularization=0.0)
     if y===nothing
         Av = A*v
     else
@@ -219,24 +209,26 @@ function constrained_AplusE(target, pert::ComplexSparsePerturbation, A, v, y=not
     projA = A - nonpert .* vP # this projects A on Im(pc.V)^⟂
     # we subtract this projection before the next addition in the hope of getting
     # exact zeros where needed, and avoid losing accuracy.
-    AplusE = projA + E1 + (Diagonal(regularization ./ (s2 .+ regularization) ./ s2) *Av) .* vP
-    return AplusE, lambda, nv
+    minimizer_AplusE = projA + E1 + (Diagonal(regularization ./ (s2 .+ regularization) ./ s2) *Av) .* vP
+    return minimizer_AplusE, lambda, nv
 end
 
-function constrained_gradient_alternative(target, pert, A, v, y=nothing; regularization=0.0)
-    AplusE, lambda, nv = constrained_AplusE(target, pert, A, v, y; regularization)
+"""
+    Alternate formula for the gradient, in the hope of getting better accuracy (but it didn't work in the end)
+"""
+function gradient_alternative(target, pert, A, v, y=nothing; regularization=0.0)
+    AplusE, lambda, nv = minimizer_AplusE(target, pert, A, v, y; regularization)
     return 2(nv*lambda' - AplusE'*nv)
 end
 
-
 """
-    `optval = constrained_optimal_value(target, pert, A, v)`
+    `optval = optimal_value(target, pert, A, v)`
 
 Computes optval = min ||E||^2 s.t. (A+E)v = v*λ and the constraint that the sparsity pattern of E is P (boolean matrix)
 
-λ is chosen (inside the target region or on its border) to minimize `constrained_optimal_value(A, v, λ)`
+λ is chosen (inside the target region or on its border) to minimize `optimal_value(A, v, λ)`
 """
-function constrained_optimal_value(target, pert, A, v; regularization=0.0)
+function optimal_value(target, pert, A, v; regularization=0.0)
     Av = ConstantMatrixProduct(A)(v)  # Av = A*v
     pc = precompute(pert, v, regularization; warn=!isa(target, Singular))
     lambda = lambda_opt(target, pert, Av, v, pc)
@@ -245,7 +237,7 @@ function constrained_optimal_value(target, pert, A, v; regularization=0.0)
     return optval
 end
 
-function constrained_optimal_value(target, pert::GeneralPerturbation, A, v, y=nothing; regularization=0.0)
+function optimal_value(target, pert::GeneralPerturbation, A, v, y=nothing; regularization=0.0)
     if y===nothing
         Av = ConstantMatrixProduct(A)(v)
     else
@@ -263,11 +255,11 @@ function constrained_optimal_value(target, pert::GeneralPerturbation, A, v, y=no
     return sum(abs2.(t) ./ (pc.S.^2 .+ regularization))
 end
 
-function constrained_optimal_value_Euclidean_gradient_zygote(target, pert, A, v; regularization=0.0)
-    return first(realgradient_zygote(x -> constrained_optimal_value(target, pert, A, x; regularization), v))
+function Euclidean_gradient_zygote(target, pert, A, v; regularization=0.0)
+    return first(realgradient_zygote(x -> optimal_value(target, pert, A, x; regularization), v))
 end
 
-function constrained_optimal_value_Euclidean_gradient_analytic(target, pert, A, v; regularization=0.0)
+function Euclidean_gradient_analytic(target, pert, A, v; regularization=0.0)
     Av = ConstantMatrixProduct(A)(v)  # Av = A*v
     pc = precompute(pert, v, regularization; warn=!isa(target, Singular))
     lambda = lambda_opt(target, pert, Av, v, pc)
@@ -277,7 +269,7 @@ function constrained_optimal_value_Euclidean_gradient_analytic(target, pert, A, 
     return grad
 end
 
-function constrained_optimal_value_Euclidean_gradient_analytic(target, pert::GeneralPerturbation, A, v, y=nothing; regularization=0.0)
+function Euclidean_gradient_analytic(target, pert::GeneralPerturbation, A, v, y=nothing; regularization=0.0)
     if y===nothing
         Av = ConstantMatrixProduct(A)(v)
     else
@@ -309,7 +301,7 @@ function reduced_augmented_Lagrangian(target, pert, A, v, y; regularization=0.0)
     return optval
 end
 reduced_augmented_Lagrangian(target, pert::GeneralPerturbation, A, v, y; regularization=0.0) =
-    constrained_optimal_value(target, pert, A, v, y; regularization)
+    optimal_value(target, pert, A, v, y; regularization)
 
 function reduced_augmented_Lagrangian_minimizer(target, pert, A, v, y; regularization=0.0)
     Av_mod = ConstantMatrixProduct(A)(v) + regularization*y
@@ -321,7 +313,7 @@ function reduced_augmented_Lagrangian_minimizer(target, pert, A, v, y; regulariz
     return E, lambda
 end
 reduced_augmented_Lagrangian_minimizer(target, pert::GeneralPerturbation, A, v, y; regularization=0.0) =
-    constrained_minimizer(target, pert, A, v, y; regularization)
+    minimizer(target, pert, A, v, y; regularization)
 
 function reduced_augmented_Lagrangian_Euclidean_gradient_zygote(target, pert, A, v, y; regularization=0.0)
     return first(realgradient_zygote(x -> reduced_augmented_Lagrangian(target, pert, A, x, y; regularization), v))
@@ -337,7 +329,7 @@ function reduced_augmented_Lagrangian_Euclidean_gradient_analytic(target, pert, 
     return grad
 end
 reduced_augmented_Lagrangian_Euclidean_gradient_analytic(target, pert::GeneralPerturbation, A, v, y; regularization=0.0) =
-    constrained_optimal_value_Euclidean_gradient_analytic(target, pert, A, v, y; regularization)
+    Euclidean_gradient_analytic(target, pert, A, v, y; regularization)
 
 """
     `g = realgradient(f, cv)`
@@ -381,12 +373,12 @@ Additional keyword arguments are passed to the optimizer (for `debug`, `stopping
 """
 function nearest_unstable(target, pert, A, x0; regularization=0.0, 
                                                     optimizer=Manopt.trust_regions, 
-                                                    gradient=constrained_optimal_value_Euclidean_gradient_analytic,
+                                                    gradient=Euclidean_gradient_analytic,
                                                     kwargs...)
     n = size(A,1)
     M = Manifolds.Sphere(n-1, eltype(x0)<:Complex ? ℂ : ℝ)
 
-    f(M, v) = constrained_optimal_value(target, pert, A, v; regularization)
+    f(M, v) = optimal_value(target, pert, A, v; regularization)
 
     function g(M, v)
         gr = gradient(target, pert, A, v; regularization)
@@ -399,10 +391,10 @@ end
 using Optim
 
 function nearest_unstable_optim(target, pert, A, x0; regularization=0.0,
-    gradient=constrained_optimal_value_Euclidean_gradient_analytic,
+    gradient=Euclidean_gradient_analytic,
     kwargs...)
 
-    f(v) = constrained_optimal_value(target, pert, A, v; regularization)
+    f(v) = optimal_value(target, pert, A, v; regularization)
     g(v) = gradient(target, pert, A, v; regularization)
     
     res = optimize(f, g, x0, 
@@ -417,7 +409,7 @@ end
 
 function nearest_unstable_penalty_method!(target, pert, A, x;
                         optimizer=Manopt.quasi_Newton!,
-                        gradient=constrained_optimal_value_Euclidean_gradient_analytic,
+                        gradient=Euclidean_gradient_analytic,
                         outer_iterations=30, 
                         starting_regularization=1.,
                         regularization_damping = 0.75, kwargs...)
@@ -426,13 +418,13 @@ function nearest_unstable_penalty_method!(target, pert, A, x;
     M = Manifolds.Sphere(n-1, eltype(x)<:Complex ? ℂ : ℝ)
     regularization = starting_regularization
 
-    E, lambda = constrained_minimizer(target, pert, A, x; regularization)
+    E, lambda = minimizer(target, pert, A, x; regularization)
     df = DataFrame()
     df.outer_iteration_number = [0]
     df.regularization = [regularization]
     df.inner_iterations = [0]
-    df.f = [constrained_optimal_value(target, pert, A, x)]
-    df.f_reg = [constrained_optimal_value(target, pert, A, x; regularization)]
+    df.f = [optimal_value(target, pert, A, x)]
+    df.f_reg = [optimal_value(target, pert, A, x; regularization)]
     df.f_heuristic = [NearestUnstableMatrix.heuristic_zeros(target, pert, A, x)[2]]
     df.constraint_violation = [norm((A+E)*x - x*lambda)]
     
@@ -442,14 +434,14 @@ function nearest_unstable_penalty_method!(target, pert, A, x;
             break
         end
 
-        E, lambda = constrained_minimizer(target, pert, A, x; regularization)
-        # @show original_function_value = constrained_optimal_value(target, A, x)
+        E, lambda = minimizer(target, pert, A, x; regularization)
+        # @show original_function_value = optimal_value(target, A, x)
         # @show heuristic_value = NearestUnstableMatrix.heuristic_zeros(target, A, x)[2]
         # @show constraint_violation = norm((A+E)*x - x*lambda)
         # @show regularization
         # @show k
 
-        f(M, v) = constrained_optimal_value(target, pert, A, v; regularization)
+        f(M, v) = optimal_value(target, pert, A, v; regularization)
 
         function g(M, v)
             gr = gradient(target, pert, A, v; regularization)
@@ -457,13 +449,13 @@ function nearest_unstable_penalty_method!(target, pert, A, x;
         end
     
         R = optimizer(M, f, g, x; return_state=true, record=[:Iteration], kwargs...)
-        E, lambda = constrained_minimizer(target, pert, A, x; regularization)
+        E, lambda = minimizer(target, pert, A, x; regularization)
         
         # populate results
         push!(df, 
             [k, regularization, length(get_record(R)), 
-            constrained_optimal_value(target, pert, A, x),
-            constrained_optimal_value(target, pert, A, x; regularization),
+            optimal_value(target, pert, A, x),
+            optimal_value(target, pert, A, x; regularization),
             NearestUnstableMatrix.heuristic_zeros(target, pert, A, x)[2],
             norm((A+E)*x - x*lambda),
             ]
@@ -492,8 +484,8 @@ function nearest_unstable_augmented_Lagrangian_method!(target, pert, A, x; optim
     df.outer_iteration_number = [0]
     df.regularization = [regularization]
     df.inner_iterations = [0]
-    df.f = [constrained_optimal_value(target, pert, A, x)]
-    df.f_reg = [constrained_optimal_value(target, pert, A, x; regularization)]
+    df.f = [optimal_value(target, pert, A, x)]
+    df.f_reg = [optimal_value(target, pert, A, x; regularization)]
     df.f_heuristic = [NearestUnstableMatrix.heuristic_zeros(target, pert, A, x)[2]]
     df.constraint_violation = [norm((A+E)*x - x*lambda)]
     df.normy = [norm(y)]
@@ -514,8 +506,8 @@ function nearest_unstable_augmented_Lagrangian_method!(target, pert, A, x; optim
         E, lambda = reduced_augmented_Lagrangian_minimizer(target, pert, A, x, y; regularization)
         push!(df,
             [k, regularization, length(get_record(R)), 
-            constrained_optimal_value(target, pert, A, x),
-            constrained_optimal_value(target, pert, A, x; regularization),
+            optimal_value(target, pert, A, x),
+            optimal_value(target, pert, A, x; regularization),
             NearestUnstableMatrix.heuristic_zeros(target, pert, A, x)[2],
             norm((A+E)*x - x*lambda),
             norm(y),
@@ -562,7 +554,7 @@ function nearest_unstable_augmented_Lagrangian_method_optim(target, pert, A, x0;
         y .= y + (1/regularization) * ((A+E)*x - x*lambda)
         if verbose
             @show constraint_violation = norm((A+E)*x - x*lambda)
-            @show original_function_value = constrained_optimal_value(target, pert, A, x)
+            @show original_function_value = optimal_value(target, pert, A, x)
             @show heuristic_value = NearestUnstableMatrix.heuristic_zeros(target, pert, A, x)[2]
         end
         f(v) = reduced_augmented_Lagrangian(target, pert, A, v, y; regularization)
@@ -582,7 +574,7 @@ function nearest_unstable_augmented_Lagrangian_method_optim(target, pert, A, x0;
     E, lambda = reduced_augmented_Lagrangian_minimizer(target, pert, A, x, y; regularization)
     if verbose
         @show constraint_violation = norm((A+E)*x - x*lambda)
-        @show original_function_value = constrained_optimal_value(target, pert, A, x)
+        @show original_function_value = optimal_value(target, pert, A, x)
         @show heuristic_value = NearestUnstableMatrix.heuristic_zeros(target, pert, A, x)[2]
     end
     return x
@@ -637,15 +629,15 @@ end
     v, fval = heuristic_zeros(target, pert, A, v_)
 
     Tries to replace with zeros some entries of v_ (those corresponding to small entries of m2), to get a lower 
-    value fval for constrained_optimal_value. Keeps adding zeros iteratively.
+    value fval for `optimal_value`. Keeps adding zeros iteratively.
 """
 function heuristic_zeros(target, pert::ComplexSparsePerturbation, A, v_)
     v = copy(v_)
-    bestval = constrained_optimal_value(target, pert, A, v)
+    bestval = optimal_value(target, pert, A, v)
     bestvec = copy(v)
     for k = 1:length(v)
         insert_zero_heuristic!(target, pert, A, v)
-        curval = constrained_optimal_value(target, pert, A, v)
+        curval = optimal_value(target, pert, A, v)
         if iszero(curval)
             break
         end

@@ -31,27 +31,27 @@ end
     v = ComplexF64.([3/5;4/5])
     target = Singular()
     P = ComplexSparsePerturbation(A.!=0)
-    E, lambda = constrained_minimizer(target, P, A, v)
+    E, lambda = minimizer(target, P, A, v)
     @test E ≈ [-1.32 -1.76; -3 -4]
     @test lambda == 0
-    @test constrained_optimal_value(target, P, A, v) ≈ norm(E)^2
-    AplusE, lambda2, nv = constrained_AplusE(target, P, A, v)
+    @test optimal_value(target, P, A, v) ≈ norm(E)^2
+    AplusE, lambda2, nv = minimizer_AplusE(target, P, A, v)
     @test AplusE ≈ A+E
     @test lambda2 ≈ lambda
-    @test NearestUnstableMatrix.constrained_optimal_value_Euclidean_gradient_zygote(target, P, A, v) ≈ 
-          NearestUnstableMatrix.constrained_optimal_value_Euclidean_gradient_analytic(target, P, A, v)
+    @test NearestUnstableMatrix.Euclidean_gradient_zygote(target, P, A, v) ≈ 
+          NearestUnstableMatrix.Euclidean_gradient_analytic(target, P, A, v)
     y = randn(ComplexF64, n)
     @test NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_zygote(target, P, A, v, y) ≈ 
           NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_analytic(target, P, A, v, y)
     # with regularization
     regularization = 0.5
-    E, lambda = constrained_minimizer(target, P, A, v; regularization)
-    @test constrained_optimal_value(target, P, A, v; regularization) ≈ norm(E)^2 + norm((A+E)*v-v*lambda)^2/regularization
-    AplusE, lambda2, nv = constrained_AplusE(target, P, A, v; regularization)
+    E, lambda = minimizer(target, P, A, v; regularization)
+    @test optimal_value(target, P, A, v; regularization) ≈ norm(E)^2 + norm((A+E)*v-v*lambda)^2/regularization
+    AplusE, lambda2, nv = minimizer_AplusE(target, P, A, v; regularization)
     @test AplusE ≈ A+E
     @test lambda2 ≈ lambda
-    @test NearestUnstableMatrix.constrained_optimal_value_Euclidean_gradient_zygote(target, P, A, v; regularization) ≈ 
-            NearestUnstableMatrix.constrained_optimal_value_Euclidean_gradient_analytic(target, P, A, v; regularization)
+    @test NearestUnstableMatrix.Euclidean_gradient_zygote(target, P, A, v; regularization) ≈ 
+            NearestUnstableMatrix.Euclidean_gradient_analytic(target, P, A, v; regularization)
     y = randn(ComplexF64, n)
     @test NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_zygote(target, P, A, v, y; regularization) ≈ 
             NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_analytic(target, P, A, v, y; regularization)
@@ -64,29 +64,29 @@ end
     P = ComplexSparsePerturbation(A.!=0)
     v = normalize(rand(ComplexF64, n))
     target = NonHurwitz()
-    E, lambda = constrained_minimizer(target, P, A, v)
+    E, lambda = minimizer(target, P, A, v)
     @test (A+E)*v ≈ v*lambda
     @test real(lambda) >= 0
-    @test constrained_optimal_value(target, P, A, v) ≈ norm(E)^2
-    AplusE, lambda2, nv = constrained_AplusE(target, P, A, v)
+    @test optimal_value(target, P, A, v) ≈ norm(E)^2
+    AplusE, lambda2, nv = minimizer_AplusE(target, P, A, v)
     @test AplusE ≈ A+E
     @test lambda2 ≈ lambda
-    @test NearestUnstableMatrix.constrained_optimal_value_Euclidean_gradient_zygote(target, P, A, v) ≈ 
-          NearestUnstableMatrix.constrained_optimal_value_Euclidean_gradient_analytic(target, P, A, v)
+    @test NearestUnstableMatrix.Euclidean_gradient_zygote(target, P, A, v) ≈ 
+          NearestUnstableMatrix.Euclidean_gradient_analytic(target, P, A, v)
     y = randn(ComplexF64, n)
     @test NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_zygote(target, P, A, v, y) ≈ 
           NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_analytic(target, P, A, v, y)
 
     # with regularization
     regularization = 0.5
-    E, lambda = constrained_minimizer(target, P, A, v; regularization)
+    E, lambda = minimizer(target, P, A, v; regularization)
     @test real(lambda) >= 0
-    @test constrained_optimal_value(target, P, A, v; regularization) ≈ norm(E)^2 + norm((A+E)*v-v*lambda)^2/regularization
-    AplusE, lambda2, nv = constrained_AplusE(target, P, A, v; regularization)
+    @test optimal_value(target, P, A, v; regularization) ≈ norm(E)^2 + norm((A+E)*v-v*lambda)^2/regularization
+    AplusE, lambda2, nv = minimizer_AplusE(target, P, A, v; regularization)
     @test AplusE ≈ A+E
     @test lambda2 ≈ lambda
-    @test NearestUnstableMatrix.constrained_optimal_value_Euclidean_gradient_zygote(target, P, A, v; regularization) ≈ 
-          NearestUnstableMatrix.constrained_optimal_value_Euclidean_gradient_analytic(target, P, A, v; regularization)
+    @test NearestUnstableMatrix.Euclidean_gradient_zygote(target, P, A, v; regularization) ≈ 
+          NearestUnstableMatrix.Euclidean_gradient_analytic(target, P, A, v; regularization)
     y = randn(ComplexF64, n)
     @test NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_zygote(target, P, A, v, y; regularization) ≈ 
           NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_analytic(target, P, A, v, y; regularization)
@@ -99,27 +99,27 @@ end
     P = ComplexSparsePerturbation(A.!=0)
 
     target = NonHurwitz()
-    E, lambda = constrained_minimizer(target, P, A, v)
+    E, lambda = minimizer(target, P, A, v)
     @test (E.==0) == (A.==0)
     @test lambda ≈ v'*(A+E)*v
     @test (A+E)*v ≈ v*lambda
     @test abs(real(lambda)) < sqrt(eps(1.))
     @test abs(maximum(real(eigvals(A+E)))) < sqrt(eps(1.))
-    @test constrained_optimal_value(target, P, A, v) ≈ norm(E)^2
-    AplusE, lambda2, nv = constrained_AplusE(target, P, A, v)
+    @test optimal_value(target, P, A, v) ≈ norm(E)^2
+    AplusE, lambda2, nv = minimizer_AplusE(target, P, A, v)
     @test AplusE ≈ A+E
     @test lambda2 ≈ lambda
-    @test NearestUnstableMatrix.constrained_optimal_value_Euclidean_gradient_zygote(target, P, A, v) ≈ 
-          NearestUnstableMatrix.constrained_optimal_value_Euclidean_gradient_analytic(target, P, A, v)
+    @test NearestUnstableMatrix.Euclidean_gradient_zygote(target, P, A, v) ≈ 
+          NearestUnstableMatrix.Euclidean_gradient_analytic(target, P, A, v)
     y = randn(ComplexF64, n)
     @test NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_zygote(target, P, A, v, y) ≈ 
           NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_analytic(target, P, A, v, y)
 
-    @test NearestUnstableMatrix.constrained_optimal_value_Euclidean_gradient_analytic(target, P, A, v) ≈
-          NearestUnstableMatrix.constrained_gradient_alternative(target, P, A, v)
+    @test NearestUnstableMatrix.Euclidean_gradient_analytic(target, P, A, v) ≈
+          NearestUnstableMatrix.gradient_alternative(target, P, A, v)
 
     @test NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_analytic(target, P, A, v, y) ≈
-          NearestUnstableMatrix.constrained_gradient_alternative(target, P, A, v, y)
+          NearestUnstableMatrix.gradient_alternative(target, P, A, v, y)
 
 
     # test Disc
@@ -130,23 +130,23 @@ end
     P = ComplexSparsePerturbation(A.!=0)
 
     target = NonSchur()
-    E, lambda = constrained_minimizer(target, P, A, v)
+    E, lambda = minimizer(target, P, A, v)
     @test (E.==0) == (A.==0)
     @test lambda ≈ v'*(A+E)*v
     @test (A+E)*v ≈ v*lambda
     @test abs(lambda) ≈ 1.
     @test maximum(abs.(eigvals(A+E))) ≈ 1.
-    @test constrained_optimal_value(target, P, A, v) ≈ norm(E)^2
-    AplusE, lambda2, nv = constrained_AplusE(target, P, A, v)
+    @test optimal_value(target, P, A, v) ≈ norm(E)^2
+    AplusE, lambda2, nv = minimizer_AplusE(target, P, A, v)
     @test AplusE ≈ A+E
     @test lambda2 ≈ lambda
-    @test NearestUnstableMatrix.constrained_optimal_value_Euclidean_gradient_zygote(target, P, A, v) ≈ 
-          NearestUnstableMatrix.constrained_optimal_value_Euclidean_gradient_analytic(target, P, A, v)
+    @test NearestUnstableMatrix.Euclidean_gradient_zygote(target, P, A, v) ≈ 
+          NearestUnstableMatrix.Euclidean_gradient_analytic(target, P, A, v)
     y = randn(ComplexF64, n)
     @test NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_zygote(target, P, A, v, y) ≈ 
           NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_analytic(target, P, A, v, y)
     E, lambda = NearestUnstableMatrix.reduced_augmented_Lagrangian_minimizer(target, P, A, v, y)
-    AplusE, lambda2, nv = constrained_AplusE(target, P, A, v, y)
+    AplusE, lambda2, nv = minimizer_AplusE(target, P, A, v, y)
     @assert lambda ≈ lambda2
     @assert A+E ≈ AplusE
 
@@ -158,18 +158,18 @@ end
     P = ComplexSparsePerturbation(A.!=0)
     v = normalize(rand(ComplexF64, n))
     target = NonSchur()
-    E, lambda = constrained_minimizer(target, P, A, v)
+    E, lambda = minimizer(target, P, A, v)
     @test (E.==0) == (A.==0)
     @test lambda ≈ v'*(A+E)*v
     @test (A+E)*v ≈ v*lambda
     @test abs(lambda) ≈ 1.
     @test maximum(abs.(eigvals(Array(A+E)))) ≈ 1.
-    @test constrained_optimal_value(target, P, A, v) ≈ norm(E)^2
-    AplusE, lambda2, nv = constrained_AplusE(target, P, A, v)
+    @test optimal_value(target, P, A, v) ≈ norm(E)^2
+    AplusE, lambda2, nv = minimizer_AplusE(target, P, A, v)
     @test AplusE ≈ A+E
     @test lambda2 ≈ lambda
-    @test NearestUnstableMatrix.constrained_optimal_value_Euclidean_gradient_zygote(target, P, A, v) ≈ 
-          NearestUnstableMatrix.constrained_optimal_value_Euclidean_gradient_analytic(target, P, A, v)
+    @test NearestUnstableMatrix.Euclidean_gradient_zygote(target, P, A, v) ≈ 
+          NearestUnstableMatrix.Euclidean_gradient_analytic(target, P, A, v)
     y = randn(ComplexF64, n)
     @test NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_zygote(target, P, A, v, y) ≈ 
     NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_analytic(target, P, A, v, y)
@@ -185,25 +185,25 @@ end
       P1 = ComplexSparsePerturbation(A.!=0)
       P2 = GeneralPerturbation(P1)
       
-      @test constrained_optimal_value(target, P1, A, v) ≈ constrained_optimal_value(target, P2, A, v)
-      E1, lambda1 = constrained_minimizer(target, P1, A, v)
-      E2, lambda2 = constrained_minimizer(target, P2, A, v)
+      @test optimal_value(target, P1, A, v) ≈ optimal_value(target, P2, A, v)
+      E1, lambda1 = minimizer(target, P1, A, v)
+      E2, lambda2 = minimizer(target, P2, A, v)
       @test E1 ≈ E2
       @test lambda1 ≈ lambda2
 
-      @test NearestUnstableMatrix.constrained_optimal_value_Euclidean_gradient_analytic(target, P1, A, v) ≈ 
-            NearestUnstableMatrix.constrained_optimal_value_Euclidean_gradient_analytic(target, P2, A, v)
+      @test NearestUnstableMatrix.Euclidean_gradient_analytic(target, P1, A, v) ≈ 
+            NearestUnstableMatrix.Euclidean_gradient_analytic(target, P2, A, v)
 
       regularization = 0.1
-      @test constrained_optimal_value(target, P1, A, v; regularization) ≈ constrained_optimal_value(target, P2, A, v; regularization)
-      E1, lambda1 = constrained_minimizer(target, P1, A, v; regularization)
-      E2, lambda2 = constrained_minimizer(target, P2, A, v; regularization)
+      @test optimal_value(target, P1, A, v; regularization) ≈ optimal_value(target, P2, A, v; regularization)
+      E1, lambda1 = minimizer(target, P1, A, v; regularization)
+      E2, lambda2 = minimizer(target, P2, A, v; regularization)
       @test E1 ≈ E2
       @test lambda1 ≈ lambda2
-      @test constrained_optimal_value(target, P2, A, v; regularization) ≈ norm(E2)^2 + norm((A+E2)*v-v*lambda2)^2/regularization
+      @test optimal_value(target, P2, A, v; regularization) ≈ norm(E2)^2 + norm((A+E2)*v-v*lambda2)^2/regularization
 
-      @test NearestUnstableMatrix.constrained_optimal_value_Euclidean_gradient_analytic(target, P1, A, v; regularization) ≈ 
-            NearestUnstableMatrix.constrained_optimal_value_Euclidean_gradient_analytic(target, P2, A, v; regularization)
+      @test NearestUnstableMatrix.Euclidean_gradient_analytic(target, P1, A, v; regularization) ≈ 
+            NearestUnstableMatrix.Euclidean_gradient_analytic(target, P2, A, v; regularization)
 
       y = randn(ComplexF64, n)
       @test NearestUnstableMatrix.reduced_augmented_Lagrangian(target, P1, A, v, y; regularization) ≈ 
@@ -226,19 +226,19 @@ end
       x0 = project(Manifolds.Sphere(size(A,1) - 1, ℂ), randn(Complex{eltype(A)}, size(A, 1)))
       x = nearest_unstable(target, P, A, x0,
             stopping_criterion=StopWhenAny(StopAfterIteration(1000), StopWhenGradientNormLess(10^(-6))))
-      E, lambda = constrained_minimizer(target, P, A, x)
+      E, lambda = minimizer(target, P, A, x)
       @test is_toeplitz(E)
       @test abs(lambda - x'*(A+E)*x) < sqrt(eps(1.))
       @test norm((A+E)*x - x*lambda) < sqrt(eps(1.))
       @test abs(real(lambda)) < sqrt(eps(1.))
-      fval = constrained_optimal_value(target, P, A, x)
+      fval = optimal_value(target, P, A, x)
       @assert fval ≈ norm(E)^2
 
       regularization = 0.1
-      E, lambda = constrained_minimizer(target, P, A, x; regularization)
+      E, lambda = minimizer(target, P, A, x; regularization)
       @test is_toeplitz(E)
       @test abs(real(lambda)) < sqrt(eps(1.))
-      fval = constrained_optimal_value(target, P, A, x; regularization)
+      fval = optimal_value(target, P, A, x; regularization)
       @assert fval ≈ norm(E)^2 + norm((A+E)*x-x*lambda)^2/regularization
 end
 
@@ -249,7 +249,7 @@ end
 #       x0 = project(Manifolds.Sphere(size(A,1) - 1, ℂ), randn(Complex{eltype(A)}, size(A, 1)))
 #       x = nearest_unstable(target, P, A, x0,
 #             stopping_criterion=StopWhenAny(StopAfterIteration(1000), StopWhenGradientNormLess(10^(-6))))
-#       E, lambda = constrained_minimizer(target, P, A, x)
+#       E, lambda = minimizer(target, P, A, x)
 # end
 
 @testset "nearest_unstable" begin
@@ -265,7 +265,7 @@ end
       x = nearest_unstable(target, P, A, x0,
                   stopping_criterion=StopWhenAny(StopAfterIteration(1000), 
                                           StopWhenGradientNormLess(10^(-6))))
-      @test constrained_optimal_value(target, P, A, x) ≈ 2.2810193
+      @test optimal_value(target, P, A, x) ≈ 2.2810193
 
       x = NearestUnstableMatrix.nearest_unstable_augmented_Lagrangian_method_optim(target, P, A, x0, 
       starting_regularization=3., 
@@ -277,6 +277,6 @@ end
       g_tol=1e-6, 
       iterations=10_000)
 
-      @test constrained_optimal_value(target, P, A, x) ≈ 2.2810193
+      @test optimal_value(target, P, A, x) ≈ 2.2810193
 
 end

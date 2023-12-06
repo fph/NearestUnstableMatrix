@@ -19,4 +19,4 @@ x = nearest_unstable(target, pert, A, x0,
             stopping_criterion=StopWhenAny(StopAfterIteration(1000), 
                                     StopWhenGradientNormLess(10^(-6))))
 
-E, lambda = constrained_minimizer(target, pert, A, x)
+E, lambda = minimizer(target, pert, A, x)
