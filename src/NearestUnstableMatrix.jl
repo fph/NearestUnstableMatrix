@@ -423,7 +423,7 @@ function nearest_unstable(target, pert, A, x0; regularization=0.0,
                                                     gradient=constrained_optimal_value_Euclidean_gradient_analytic,
                                                     kwargs...)
     n = size(A,1)
-    M = Manifolds.Sphere(n-1, ℂ)
+    M = Manifolds.Sphere(n-1, eltype(x0)<:Complex ? ℂ : ℝ)
 
     f(M, v) = constrained_optimal_value(target, pert, A, v; regularization)
 
@@ -462,7 +462,7 @@ function nearest_unstable_penalty_method!(target, pert, A, x;
                         regularization_damping = 0.75, kwargs...)
 
     n = size(A,1)
-    M = Manifolds.Sphere(n-1, ℂ)
+    M = Manifolds.Sphere(n-1, eltype(x0)<:Complex ? ℂ : ℝ)
     regularization = starting_regularization
 
     E, lambda = constrained_minimizer(target, pert, A, x; regularization)
@@ -522,11 +522,11 @@ function nearest_unstable_augmented_Lagrangian_method!(target, pert, A, x; optim
                                                     regularization_damping = 0.8,
                                                     kwargs...)
     n = size(A,1)
-    M = Manifolds.Sphere(n-1, ℂ)
+    M = Manifolds.Sphere(n-1, eltype(x0)<:Complex ? ℂ : ℝ)
     y = zero(x)
     regularization = starting_regularization
 
-    AplusE, lambda, nv = constrained_AplusE(target, pert, A, x, y; regularization)
+    E, lambda = reduced_augmented_Lagrangian_minimizer(target, pert, A, x, y; regularization)
     df = DataFrame()
     df.outer_iteration_number = [0]
     df.regularization = [regularization]
@@ -534,7 +534,7 @@ function nearest_unstable_augmented_Lagrangian_method!(target, pert, A, x; optim
     df.f = [constrained_optimal_value(target, pert, A, x)]
     df.f_reg = [constrained_optimal_value(target, pert, A, x; regularization)]
     df.f_heuristic = [NearestUnstableMatrix.heuristic_zeros(target, pert, A, x)[2]]
-    df.constraint_violation = [norm(AplusE*x - x*lambda)]
+    df.constraint_violation = [norm((A+E)*x - x*lambda)]
     df.normy = [norm(y)]
     df.augmented_Lagrangian = [reduced_augmented_Lagrangian(target, pert, A, x, y; regularization) - regularization*norm(y)^2]
     
@@ -550,13 +550,13 @@ function nearest_unstable_augmented_Lagrangian_method!(target, pert, A, x; optim
         end
 
         R = optimizer(M, f, g_zygote, x; return_state=true, record=[:Iteration], kwargs...)
-        AplusE, lambda, nv = constrained_AplusE(target, pert, A, x, y; regularization)
+        E, lambda = reduced_augmented_Lagrangian_minimizer(target, pert, A, x, y; regularization)
         push!(df,
             [k, regularization, length(get_record(R)), 
             constrained_optimal_value(target, pert, A, x),
             constrained_optimal_value(target, pert, A, x; regularization),
             NearestUnstableMatrix.heuristic_zeros(target, pert, A, x)[2],
-            norm(AplusE*x - x*lambda),
+            norm((A+E)*x - x*lambda),
             norm(y),
             reduced_augmented_Lagrangian(target, pert, A, x, y; regularization) - regularization*norm(y)^2
             ]
@@ -564,7 +564,7 @@ function nearest_unstable_augmented_Lagrangian_method!(target, pert, A, x; optim
 
         #TODO: compare accuracy of this formula with the vanilla update y .= y + (1/regularization) * ((A+E)*x - x*lambda)
         # y .= inverse_quadratic_form_matvec(pc, A*x + regularization*y - x*lambda)
-        y .= y + (1/regularization) * (AplusE*x - x*lambda)
+        y .= y + (1/regularization) * ((A+E)*x - x*lambda)
         regularization = regularization * regularization_damping
 
     end
