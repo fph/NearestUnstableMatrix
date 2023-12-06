@@ -81,7 +81,7 @@ function GeneralPerturbation(pert::ComplexSparsePerturbation)
     m, n = size(pert.P)
     (ii, jj, _) = findnz(sparse(pert.P))
     EE = collect(sparse([i], [j], [1.], m, n) for (i, j) in zip(ii, jj))
-    P2 = GeneralPerturbation(EE)
+    return GeneralPerturbation(EE)
 end
 
 """
