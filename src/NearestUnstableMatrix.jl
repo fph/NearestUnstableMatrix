@@ -286,7 +286,8 @@ function Euclidean_gradient_analytic(target, pert::GeneralPerturbation, A, v, y=
     t = Uv*lambda - UAv
     omega = pc.V * (Diagonal(pc.S ./ (pc.S.^2 .+ regularization)) * t)    
     nv = pc.U * (Diagonal(1 ./ (pc.S.^2 .+ regularization)) * t)
-    return 2(nv*lambda' - A'*nv - sum(conj(m)*(E'*nv) for (E,m) in zip(pert.EE, omega)))
+    AplusE = reduce(+, (m*E for (E,m) in zip(pert.EE, omega)); init=A)
+    return 2(nv*lambda' - AplusE' * nv)
 end
 
 """
