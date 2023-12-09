@@ -247,9 +247,9 @@ end
       P = toeplitz_perturbation(A, -1:3)
       target = NonHurwitz()
       x0 = project(Manifolds.Sphere(size(A,1) - 1, ℂ), randn(Complex{eltype(A)}, size(A, 1)))
-      x = nearest_unstable(target, P, A, x0,
+      x = nearest_unstable(target, P, A, x0, regularization=1e-4,
             stopping_criterion=StopWhenAny(StopAfterIteration(1000), StopWhenGradientNormLess(10^(-6))))
-      E, lambda = minimizer(target, P, A, x)
+      @test optimal_value(target, pert, A, x, regularization=1e-4) ≈ 0.21364254813 # keep checked, we're not 100% sure the method converges to this value for all choices of x0.
 end
 
 @testset "nearest_unstable" begin
