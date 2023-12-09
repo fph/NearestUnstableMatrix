@@ -9,7 +9,7 @@ using ChainRulesCore
 using ChainRulesCore: ProjectTo, @not_implemented, @thunk
 import Manifolds: project
 
-export minimizer, optimal_value, minimizer_AplusE,
+export minimizer, optimal_value, minimizer_AplusE, compute_Mv,
     realgradient, realgradient_zygote,
     InsideDisc, OutsideDisc, NonHurwitz, NonSchur,  RightOf, Singular,
     precompute, ComplexSparsePerturbation, GeneralPerturbation,
@@ -222,22 +222,26 @@ function gradient_alternative(target, pert, A, v, y=nothing; regularization=0.0)
 end
 
 """
-    `optval = optimal_value(target, pert, A, v)`
+    `optval = optimal_value(target, pert, A, v; regularization=0.0, lambda=nothing)`
 
 Computes optval = min ||E||^2 s.t. (A+E)v = v*λ and the constraint that the sparsity pattern of E is P (boolean matrix)
 
 λ is chosen (inside the target region or on its border) to minimize `optimal_value(A, v, λ)`
 """
-function optimal_value(target, pert, A, v; regularization=0.0)
-    Av = ConstantMatrixProduct(A)(v)  # Av = A*v
+function optimal_value(target, pert, A, v; regularization=0.0, provided_lambda=nothing)
     pc = precompute(pert, v, regularization; warn=!isa(target, Singular))
-    lambda = lambda_opt(target, pert, Av, v, pc)
+    Av = ConstantMatrixProduct(A)(v)  # Av = A*v
+    if provided_lambda === nothing
+        lambda = lambda_opt(target, pert, Av, v, pc)
+    else
+        lambda = provided_lambda
+    end
     z = v * lambda - Av
     optval = sum(abs2.(z) .* pc)
     return optval
 end
 
-function optimal_value(target, pert::GeneralPerturbation, A, v, y=nothing; regularization=0.0)
+function optimal_value(target, pert::GeneralPerturbation, A, v, y=nothing; regularization=0.0, provided_lambda=nothing)
     if y===nothing
         Av = ConstantMatrixProduct(A)(v)
     else
@@ -245,13 +249,19 @@ function optimal_value(target, pert::GeneralPerturbation, A, v, y=nothing; regul
     end
     Mv = compute_Mv(pert, v)
     pc = svd(Mv)
-    Uv = pc.U'*v
-    UAv = pc.U'*Av
-    nv = Diagonal(pc.S.^2 .+ regularization) \ Uv
-    denom = nv' * Uv
-    numer = nv' * UAv
-    lambda = project(target, numer / denom)
-    t = Uv*lambda - UAv
+
+    if provided_lambda === nothing
+        Uv = pc.U'*v
+        UAv = pc.U'*Av    
+        nv = Diagonal(pc.S.^2 .+ regularization) \ Uv
+        denom = nv' * Uv
+        numer = nv' * UAv
+        lambda = project(target, numer / denom)
+        t = Uv*lambda - UAv
+    else
+        t = pc.U' * (v*provided_lambda - Av)
+    end
+    
     return sum(abs2.(t) ./ (pc.S.^2 .+ regularization))
 end
 
