@@ -16,10 +16,10 @@ using NearestUnstableMatrix: NonSchur, project, precompute
 end
 
 @testset "precompute" begin
-    P = ComplexSparsePerturbation([0 1; 1 0])
+    pert = ComplexSparsePerturbation([0 1; 1 0])
     v = [2; 0]
-    @test isequal(precompute(P, v, 1.0), [1.0; 0.2])
-    @test isequal(precompute(P, v, 0.0), [0.0; 0.25])
+    @test isequal(precompute(pert, v, 1.0), [1.0; 0.2])
+    @test isequal(precompute(pert, v, 0.0), [0.0; 0.25])
     
 end
 
@@ -30,96 +30,96 @@ end
     n = size(A, 1)
     v = ComplexF64.([3/5;4/5])
     target = Singular()
-    P = ComplexSparsePerturbation(A.!=0)
-    E, lambda = minimizer(target, P, A, v)
+    pert = ComplexSparsePerturbation(A.!=0)
+    E, lambda = minimizer(target, pert, A, v)
     @test E ≈ [-1.32 -1.76; -3 -4]
     @test lambda == 0
-    @test optimal_value(target, P, A, v) ≈ norm(E)^2
-    AplusE, lambda2, nv = minimizer_AplusE(target, P, A, v)
+    @test optimal_value(target, pert, A, v) ≈ norm(E)^2
+    AplusE, lambda2, nv = minimizer_AplusE(target, pert, A, v)
     @test AplusE ≈ A+E
     @test lambda2 ≈ lambda
-    @test NearestUnstableMatrix.Euclidean_gradient_zygote(target, P, A, v) ≈ 
-          NearestUnstableMatrix.Euclidean_gradient_analytic(target, P, A, v)
+    @test NearestUnstableMatrix.Euclidean_gradient_zygote(target, pert, A, v) ≈ 
+          NearestUnstableMatrix.Euclidean_gradient_analytic(target, pert, A, v)
     y = randn(ComplexF64, n)
-    @test NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_zygote(target, P, A, v, y) ≈ 
-          NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_analytic(target, P, A, v, y)
+    @test NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_zygote(target, pert, A, v, y) ≈ 
+          NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_analytic(target, pert, A, v, y)
     # with regularization
     regularization = 0.5
-    E, lambda = minimizer(target, P, A, v; regularization)
-    @test optimal_value(target, P, A, v; regularization) ≈ norm(E)^2 + norm((A+E)*v-v*lambda)^2/regularization
-    AplusE, lambda2, nv = minimizer_AplusE(target, P, A, v; regularization)
+    E, lambda = minimizer(target, pert, A, v; regularization)
+    @test optimal_value(target, pert, A, v; regularization) ≈ norm(E)^2 + norm((A+E)*v-v*lambda)^2/regularization
+    AplusE, lambda2, nv = minimizer_AplusE(target, pert, A, v; regularization)
     @test AplusE ≈ A+E
     @test lambda2 ≈ lambda
-    @test NearestUnstableMatrix.Euclidean_gradient_zygote(target, P, A, v; regularization) ≈ 
-            NearestUnstableMatrix.Euclidean_gradient_analytic(target, P, A, v; regularization)
+    @test NearestUnstableMatrix.Euclidean_gradient_zygote(target, pert, A, v; regularization) ≈ 
+            NearestUnstableMatrix.Euclidean_gradient_analytic(target, pert, A, v; regularization)
     y = randn(ComplexF64, n)
-    @test NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_zygote(target, P, A, v, y; regularization) ≈ 
-            NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_analytic(target, P, A, v, y; regularization)
+    @test NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_zygote(target, pert, A, v, y; regularization) ≈ 
+            NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_analytic(target, pert, A, v, y; regularization)
     
 
     # Hurwitz
     Random.seed!(0)
     n = 4
     A = rand(ComplexF64, (n,n)) - 2I
-    P = ComplexSparsePerturbation(A.!=0)
+    pert = ComplexSparsePerturbation(A.!=0)
     v = normalize(rand(ComplexF64, n))
     target = NonHurwitz()
-    E, lambda = minimizer(target, P, A, v)
+    E, lambda = minimizer(target, pert, A, v)
     @test (A+E)*v ≈ v*lambda
     @test real(lambda) >= 0
-    @test optimal_value(target, P, A, v) ≈ norm(E)^2
-    AplusE, lambda2, nv = minimizer_AplusE(target, P, A, v)
+    @test optimal_value(target, pert, A, v) ≈ norm(E)^2
+    AplusE, lambda2, nv = minimizer_AplusE(target, pert, A, v)
     @test AplusE ≈ A+E
     @test lambda2 ≈ lambda
-    @test NearestUnstableMatrix.Euclidean_gradient_zygote(target, P, A, v) ≈ 
-          NearestUnstableMatrix.Euclidean_gradient_analytic(target, P, A, v)
+    @test NearestUnstableMatrix.Euclidean_gradient_zygote(target, pert, A, v) ≈ 
+          NearestUnstableMatrix.Euclidean_gradient_analytic(target, pert, A, v)
     y = randn(ComplexF64, n)
-    @test NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_zygote(target, P, A, v, y) ≈ 
-          NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_analytic(target, P, A, v, y)
+    @test NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_zygote(target, pert, A, v, y) ≈ 
+          NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_analytic(target, pert, A, v, y)
 
     # with regularization
     regularization = 0.5
-    E, lambda = minimizer(target, P, A, v; regularization)
+    E, lambda = minimizer(target, pert, A, v; regularization)
     @test real(lambda) >= 0
-    @test optimal_value(target, P, A, v; regularization) ≈ norm(E)^2 + norm((A+E)*v-v*lambda)^2/regularization
-    AplusE, lambda2, nv = minimizer_AplusE(target, P, A, v; regularization)
+    @test optimal_value(target, pert, A, v; regularization) ≈ norm(E)^2 + norm((A+E)*v-v*lambda)^2/regularization
+    AplusE, lambda2, nv = minimizer_AplusE(target, pert, A, v; regularization)
     @test AplusE ≈ A+E
     @test lambda2 ≈ lambda
-    @test NearestUnstableMatrix.Euclidean_gradient_zygote(target, P, A, v; regularization) ≈ 
-          NearestUnstableMatrix.Euclidean_gradient_analytic(target, P, A, v; regularization)
+    @test NearestUnstableMatrix.Euclidean_gradient_zygote(target, pert, A, v; regularization) ≈ 
+          NearestUnstableMatrix.Euclidean_gradient_analytic(target, pert, A, v; regularization)
     y = randn(ComplexF64, n)
-    @test NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_zygote(target, P, A, v, y; regularization) ≈ 
-          NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_analytic(target, P, A, v, y; regularization)
+    @test NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_zygote(target, pert, A, v, y; regularization) ≈ 
+          NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_analytic(target, pert, A, v, y; regularization)
 
     # test sparse
 
     Random.seed!(0)
     A = Array(Tridiagonal(rand(ComplexF64,n-1), rand(ComplexF64,n), rand(ComplexF64,n-1)))
     A = A - maximum(real(eigvals(A))) * I - 0.1*I
-    P = ComplexSparsePerturbation(A.!=0)
+    pert = ComplexSparsePerturbation(A.!=0)
 
     target = NonHurwitz()
-    E, lambda = minimizer(target, P, A, v)
+    E, lambda = minimizer(target, pert, A, v)
     @test (E.==0) == (A.==0)
     @test lambda ≈ v'*(A+E)*v
     @test (A+E)*v ≈ v*lambda
     @test abs(real(lambda)) < sqrt(eps(1.))
     @test abs(maximum(real(eigvals(A+E)))) < sqrt(eps(1.))
-    @test optimal_value(target, P, A, v) ≈ norm(E)^2
-    AplusE, lambda2, nv = minimizer_AplusE(target, P, A, v)
+    @test optimal_value(target, pert, A, v) ≈ norm(E)^2
+    AplusE, lambda2, nv = minimizer_AplusE(target, pert, A, v)
     @test AplusE ≈ A+E
     @test lambda2 ≈ lambda
-    @test NearestUnstableMatrix.Euclidean_gradient_zygote(target, P, A, v) ≈ 
-          NearestUnstableMatrix.Euclidean_gradient_analytic(target, P, A, v)
+    @test NearestUnstableMatrix.Euclidean_gradient_zygote(target, pert, A, v) ≈ 
+          NearestUnstableMatrix.Euclidean_gradient_analytic(target, pert, A, v)
     y = randn(ComplexF64, n)
-    @test NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_zygote(target, P, A, v, y) ≈ 
-          NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_analytic(target, P, A, v, y)
+    @test NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_zygote(target, pert, A, v, y) ≈ 
+          NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_analytic(target, pert, A, v, y)
 
-    @test NearestUnstableMatrix.Euclidean_gradient_analytic(target, P, A, v) ≈
-          NearestUnstableMatrix.gradient_alternative(target, P, A, v)
+    @test NearestUnstableMatrix.Euclidean_gradient_analytic(target, pert, A, v) ≈
+          NearestUnstableMatrix.gradient_alternative(target, pert, A, v)
 
-    @test NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_analytic(target, P, A, v, y) ≈
-          NearestUnstableMatrix.gradient_alternative(target, P, A, v, y)
+    @test NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_analytic(target, pert, A, v, y) ≈
+          NearestUnstableMatrix.gradient_alternative(target, pert, A, v, y)
 
 
     # test Disc
@@ -127,26 +127,26 @@ end
     Random.seed!(0)
     A = Array(Tridiagonal(rand(ComplexF64,n-1), rand(ComplexF64,n), rand(ComplexF64,n-1)))
     A = A * 0.9 /  maximum(abs.(eigvals(A)))
-    P = ComplexSparsePerturbation(A.!=0)
+    pert = ComplexSparsePerturbation(A.!=0)
 
     target = NonSchur()
-    E, lambda = minimizer(target, P, A, v)
+    E, lambda = minimizer(target, pert, A, v)
     @test (E.==0) == (A.==0)
     @test lambda ≈ v'*(A+E)*v
     @test (A+E)*v ≈ v*lambda
     @test abs(lambda) ≈ 1.
     @test maximum(abs.(eigvals(A+E))) ≈ 1.
-    @test optimal_value(target, P, A, v) ≈ norm(E)^2
-    AplusE, lambda2, nv = minimizer_AplusE(target, P, A, v)
+    @test optimal_value(target, pert, A, v) ≈ norm(E)^2
+    AplusE, lambda2, nv = minimizer_AplusE(target, pert, A, v)
     @test AplusE ≈ A+E
     @test lambda2 ≈ lambda
-    @test NearestUnstableMatrix.Euclidean_gradient_zygote(target, P, A, v) ≈ 
-          NearestUnstableMatrix.Euclidean_gradient_analytic(target, P, A, v)
+    @test NearestUnstableMatrix.Euclidean_gradient_zygote(target, pert, A, v) ≈ 
+          NearestUnstableMatrix.Euclidean_gradient_analytic(target, pert, A, v)
     y = randn(ComplexF64, n)
-    @test NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_zygote(target, P, A, v, y) ≈ 
-          NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_analytic(target, P, A, v, y)
-    E, lambda = NearestUnstableMatrix.reduced_augmented_Lagrangian_minimizer(target, P, A, v, y)
-    AplusE, lambda2, nv = minimizer_AplusE(target, P, A, v, y)
+    @test NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_zygote(target, pert, A, v, y) ≈ 
+          NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_analytic(target, pert, A, v, y)
+    E, lambda = NearestUnstableMatrix.reduced_augmented_Lagrangian_minimizer(target, pert, A, v, y)
+    AplusE, lambda2, nv = minimizer_AplusE(target, pert, A, v, y)
     @assert lambda ≈ lambda2
     @assert A+E ≈ AplusE
 
@@ -155,24 +155,24 @@ end
     Random.seed!(0)
     n = 4
     A = sprandn(ComplexF64, n,n, 0.5) / 2
-    P = ComplexSparsePerturbation(A.!=0)
+    pert = ComplexSparsePerturbation(A.!=0)
     v = normalize(rand(ComplexF64, n))
     target = NonSchur()
-    E, lambda = minimizer(target, P, A, v)
+    E, lambda = minimizer(target, pert, A, v)
     @test (E.==0) == (A.==0)
     @test lambda ≈ v'*(A+E)*v
     @test (A+E)*v ≈ v*lambda
     @test abs(lambda) ≈ 1.
     @test maximum(abs.(eigvals(Array(A+E)))) ≈ 1.
-    @test optimal_value(target, P, A, v) ≈ norm(E)^2
-    AplusE, lambda2, nv = minimizer_AplusE(target, P, A, v)
+    @test optimal_value(target, pert, A, v) ≈ norm(E)^2
+    AplusE, lambda2, nv = minimizer_AplusE(target, pert, A, v)
     @test AplusE ≈ A+E
     @test lambda2 ≈ lambda
-    @test NearestUnstableMatrix.Euclidean_gradient_zygote(target, P, A, v) ≈ 
-          NearestUnstableMatrix.Euclidean_gradient_analytic(target, P, A, v)
+    @test NearestUnstableMatrix.Euclidean_gradient_zygote(target, pert, A, v) ≈ 
+          NearestUnstableMatrix.Euclidean_gradient_analytic(target, pert, A, v)
     y = randn(ComplexF64, n)
-    @test NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_zygote(target, P, A, v, y) ≈ 
-    NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_analytic(target, P, A, v, y)
+    @test NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_zygote(target, pert, A, v, y) ≈ 
+    NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_analytic(target, pert, A, v, y)
 end
 
 @testset "General perturbations" begin
@@ -182,35 +182,35 @@ end
       target = NonHurwitz()
       v = normalize(rand(ComplexF64, n))
       
-      P1 = ComplexSparsePerturbation(A.!=0)
-      P2 = GeneralPerturbation(P1)
+      pert1 = ComplexSparsePerturbation(A.!=0)
+      pert2 = GeneralPerturbation(pert1)
       
-      @test optimal_value(target, P1, A, v) ≈ optimal_value(target, P2, A, v)
-      E1, lambda1 = minimizer(target, P1, A, v)
-      E2, lambda2 = minimizer(target, P2, A, v)
+      @test optimal_value(target, pert1, A, v) ≈ optimal_value(target, pert2, A, v)
+      E1, lambda1 = minimizer(target, pert1, A, v)
+      E2, lambda2 = minimizer(target, pert2, A, v)
       @test E1 ≈ E2
       @test lambda1 ≈ lambda2
 
-      @test NearestUnstableMatrix.Euclidean_gradient_analytic(target, P1, A, v) ≈ 
-            NearestUnstableMatrix.Euclidean_gradient_analytic(target, P2, A, v)
+      @test NearestUnstableMatrix.Euclidean_gradient_analytic(target, pert1, A, v) ≈ 
+            NearestUnstableMatrix.Euclidean_gradient_analytic(target, pert2, A, v)
 
       regularization = 0.1
-      @test optimal_value(target, P1, A, v; regularization) ≈ optimal_value(target, P2, A, v; regularization)
-      E1, lambda1 = minimizer(target, P1, A, v; regularization)
-      E2, lambda2 = minimizer(target, P2, A, v; regularization)
+      @test optimal_value(target, pert1, A, v; regularization) ≈ optimal_value(target, pert2, A, v; regularization)
+      E1, lambda1 = minimizer(target, pert1, A, v; regularization)
+      E2, lambda2 = minimizer(target, pert2, A, v; regularization)
       @test E1 ≈ E2
       @test lambda1 ≈ lambda2
-      @test optimal_value(target, P2, A, v; regularization) ≈ norm(E2)^2 + norm((A+E2)*v-v*lambda2)^2/regularization
+      @test optimal_value(target, pert2, A, v; regularization) ≈ norm(E2)^2 + norm((A+E2)*v-v*lambda2)^2/regularization
 
-      @test NearestUnstableMatrix.Euclidean_gradient_analytic(target, P1, A, v; regularization) ≈ 
-            NearestUnstableMatrix.Euclidean_gradient_analytic(target, P2, A, v; regularization)
+      @test NearestUnstableMatrix.Euclidean_gradient_analytic(target, pert1, A, v; regularization) ≈ 
+            NearestUnstableMatrix.Euclidean_gradient_analytic(target, pert2, A, v; regularization)
 
       y = randn(ComplexF64, n)
-      @test NearestUnstableMatrix.reduced_augmented_Lagrangian(target, P1, A, v, y; regularization) ≈ 
-            NearestUnstableMatrix.reduced_augmented_Lagrangian(target, P2, A, v, y; regularization)
+      @test NearestUnstableMatrix.reduced_augmented_Lagrangian(target, pert1, A, v, y; regularization) ≈ 
+            NearestUnstableMatrix.reduced_augmented_Lagrangian(target, pert2, A, v, y; regularization)
 
-      @test NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_analytic(target, P1, A, v, y; regularization) ≈ 
-            NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_analytic(target, P2, A, v, y; regularization)
+      @test NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_analytic(target, pert1, A, v, y; regularization) ≈ 
+            NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_analytic(target, pert2, A, v, y; regularization)
 
 end
 
@@ -221,33 +221,33 @@ end
 
 @testset "Toeplitz perturbation" begin
       A = -[5 4 3.; 2 5 4; 1 2 5]
-      P = toeplitz_perturbation(A)
+      pert = toeplitz_perturbation(A)
       target = NonHurwitz()
       x0 = project(Manifolds.Sphere(size(A,1) - 1, ℂ), randn(Complex{eltype(A)}, size(A, 1)))
-      x = nearest_unstable(target, P, A, x0,
+      x = nearest_unstable(target, pert, A, x0,
             stopping_criterion=StopWhenAny(StopAfterIteration(1000), StopWhenGradientNormLess(10^(-6))))
-      E, lambda = minimizer(target, P, A, x)
+      E, lambda = minimizer(target, pert, A, x)
       @test is_toeplitz(E)
       @test abs(lambda - x'*(A+E)*x) < sqrt(eps(1.))
       @test norm((A+E)*x - x*lambda) < sqrt(eps(1.))
       @test abs(real(lambda)) < sqrt(eps(1.))
-      fval = optimal_value(target, P, A, x)
+      fval = optimal_value(target, pert, A, x)
       @assert fval ≈ norm(E)^2
 
       regularization = 0.1
-      E, lambda = minimizer(target, P, A, x; regularization)
+      E, lambda = minimizer(target, pert, A, x; regularization)
       @test is_toeplitz(E)
       @test abs(real(lambda)) < sqrt(eps(1.))
-      fval = optimal_value(target, P, A, x; regularization)
+      fval = optimal_value(target, pert, A, x; regularization)
       @assert fval ≈ norm(E)^2 + norm((A+E)*x-x*lambda)^2/regularization
 end
 
 @testset "Grcar" begin
       A = -grcar(6)
-      P = toeplitz_perturbation(A, -1:3)
+      pert = toeplitz_perturbation(A, -1:3)
       target = NonHurwitz()
       x0 = project(Manifolds.Sphere(size(A,1) - 1, ℂ), randn(Complex{eltype(A)}, size(A, 1)))
-      x = nearest_unstable(target, P, A, x0, regularization=1e-4,
+      x = nearest_unstable(target, pert, A, x0, regularization=1e-4,
             stopping_criterion=StopWhenAny(StopAfterIteration(1000), StopWhenGradientNormLess(10^(-6))))
       @test optimal_value(target, pert, A, x, regularization=1e-4) ≈ 0.21364254813 # keep checked, we're not 100% sure the method converges to this value for all choices of x0.
 end
@@ -255,18 +255,18 @@ end
 @testset "nearest_unstable" begin
       A = reshape(collect(1:16), (4,4)); A[1,3:4] .= 0; A[2,4] = 0; A[3,1] = 0; A[4, 1:2] .= 0; A = Float64.(A)
       A = A - 30 * I
-      P = ComplexSparsePerturbation(A.!=0)
+      pert = ComplexSparsePerturbation(A.!=0)
 
       target = Singular()
 
       x0 = project(Manifolds.Sphere(size(A,1) - 1, ℂ), randn(Complex{eltype(A)}, size(A, 1)))
 
-      x = nearest_unstable(target, P, A, x0,
+      x = nearest_unstable(target, pert, A, x0,
                   stopping_criterion=StopWhenAny(StopAfterIteration(1000), 
                                           StopWhenGradientNormLess(10^(-6))))
-      @test optimal_value(target, P, A, x) ≈ 2.2810193
+      @test optimal_value(target, pert, A, x) ≈ 2.2810193
 
-      x = NearestUnstableMatrix.nearest_unstable_augmented_Lagrangian_method_optim(target, P, A, x0, 
+      x = NearestUnstableMatrix.nearest_unstable_augmented_Lagrangian_method_optim(target, pert, A, x0, 
       starting_regularization=3., 
       outer_iterations=30, 
       regularization_damping=0.7,
@@ -276,6 +276,6 @@ end
       g_tol=1e-6, 
       iterations=10_000)
 
-      @test optimal_value(target, P, A, x) ≈ 2.2810193
+      @test optimal_value(target, pert, A, x) ≈ 2.2810193
 
 end
