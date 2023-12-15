@@ -41,8 +41,8 @@ end
     @test NearestUnstableMatrix.Euclidean_gradient_zygote(target, pert, A, v) ≈ 
           NearestUnstableMatrix.Euclidean_gradient_analytic(target, pert, A, v)
     y = randn(ComplexF64, n)
-    @test NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_zygote(target, pert, A, v, y) ≈ 
-          NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_analytic(target, pert, A, v, y)
+    @test NearestUnstableMatrix.Euclidean_gradient_zygote(target, pert, A, v, y) ≈ 
+          NearestUnstableMatrix.Euclidean_gradient_analytic(target, pert, A, v, y)
     # with regularization
     regularization = 0.5
     E, lambda = minimizer(target, pert, A, v; regularization)
@@ -53,8 +53,8 @@ end
     @test NearestUnstableMatrix.Euclidean_gradient_zygote(target, pert, A, v; regularization) ≈ 
             NearestUnstableMatrix.Euclidean_gradient_analytic(target, pert, A, v; regularization)
     y = randn(ComplexF64, n)
-    @test NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_zygote(target, pert, A, v, y; regularization) ≈ 
-            NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_analytic(target, pert, A, v, y; regularization)
+    @test NearestUnstableMatrix.Euclidean_gradient_zygote(target, pert, A, v, y; regularization) ≈ 
+            NearestUnstableMatrix.Euclidean_gradient_analytic(target, pert, A, v, y; regularization)
     
 
     # Hurwitz
@@ -74,8 +74,8 @@ end
     @test NearestUnstableMatrix.Euclidean_gradient_zygote(target, pert, A, v) ≈ 
           NearestUnstableMatrix.Euclidean_gradient_analytic(target, pert, A, v)
     y = randn(ComplexF64, n)
-    @test NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_zygote(target, pert, A, v, y) ≈ 
-          NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_analytic(target, pert, A, v, y)
+    @test NearestUnstableMatrix.Euclidean_gradient_zygote(target, pert, A, v, y) ≈ 
+          NearestUnstableMatrix.Euclidean_gradient_analytic(target, pert, A, v, y)
 
     # with regularization
     regularization = 0.5
@@ -88,8 +88,8 @@ end
     @test NearestUnstableMatrix.Euclidean_gradient_zygote(target, pert, A, v; regularization) ≈ 
           NearestUnstableMatrix.Euclidean_gradient_analytic(target, pert, A, v; regularization)
     y = randn(ComplexF64, n)
-    @test NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_zygote(target, pert, A, v, y; regularization) ≈ 
-          NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_analytic(target, pert, A, v, y; regularization)
+    @test NearestUnstableMatrix.Euclidean_gradient_zygote(target, pert, A, v, y; regularization) ≈ 
+          NearestUnstableMatrix.Euclidean_gradient_analytic(target, pert, A, v, y; regularization)
 
     # test sparse
 
@@ -112,13 +112,13 @@ end
     @test NearestUnstableMatrix.Euclidean_gradient_zygote(target, pert, A, v) ≈ 
           NearestUnstableMatrix.Euclidean_gradient_analytic(target, pert, A, v)
     y = randn(ComplexF64, n)
-    @test NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_zygote(target, pert, A, v, y) ≈ 
-          NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_analytic(target, pert, A, v, y)
+    @test NearestUnstableMatrix.Euclidean_gradient_zygote(target, pert, A, v, y) ≈ 
+          NearestUnstableMatrix.Euclidean_gradient_analytic(target, pert, A, v, y)
 
     @test NearestUnstableMatrix.Euclidean_gradient_analytic(target, pert, A, v) ≈
           NearestUnstableMatrix.gradient_alternative(target, pert, A, v)
 
-    @test NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_analytic(target, pert, A, v, y) ≈
+    @test NearestUnstableMatrix.Euclidean_gradient_analytic(target, pert, A, v, y) ≈
           NearestUnstableMatrix.gradient_alternative(target, pert, A, v, y)
 
 
@@ -143,9 +143,9 @@ end
     @test NearestUnstableMatrix.Euclidean_gradient_zygote(target, pert, A, v) ≈ 
           NearestUnstableMatrix.Euclidean_gradient_analytic(target, pert, A, v)
     y = randn(ComplexF64, n)
-    @test NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_zygote(target, pert, A, v, y) ≈ 
-          NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_analytic(target, pert, A, v, y)
-    E, lambda = NearestUnstableMatrix.reduced_augmented_Lagrangian_minimizer(target, pert, A, v, y)
+    @test NearestUnstableMatrix.Euclidean_gradient_zygote(target, pert, A, v, y) ≈ 
+          NearestUnstableMatrix.Euclidean_gradient_analytic(target, pert, A, v, y)
+    E, lambda = NearestUnstableMatrix.minimizer(target, pert, A, v, y)
     AplusE, lambda2, nv = minimizer_AplusE(target, pert, A, v, y)
     @assert lambda ≈ lambda2
     @assert A+E ≈ AplusE
@@ -171,8 +171,8 @@ end
     @test NearestUnstableMatrix.Euclidean_gradient_zygote(target, pert, A, v) ≈ 
           NearestUnstableMatrix.Euclidean_gradient_analytic(target, pert, A, v)
     y = randn(ComplexF64, n)
-    @test NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_zygote(target, pert, A, v, y) ≈ 
-    NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_analytic(target, pert, A, v, y)
+    @test NearestUnstableMatrix.Euclidean_gradient_zygote(target, pert, A, v, y) ≈ 
+    NearestUnstableMatrix.Euclidean_gradient_analytic(target, pert, A, v, y)
 end
 
 @testset "General perturbations" begin
@@ -206,11 +206,11 @@ end
             NearestUnstableMatrix.Euclidean_gradient_analytic(target, pert2, A, v; regularization)
 
       y = randn(ComplexF64, n)
-      @test NearestUnstableMatrix.reduced_augmented_Lagrangian(target, pert1, A, v, y; regularization) ≈ 
-            NearestUnstableMatrix.reduced_augmented_Lagrangian(target, pert2, A, v, y; regularization)
+      @test NearestUnstableMatrix.optimal_value(target, pert1, A, v, y; regularization) ≈ 
+            NearestUnstableMatrix.optimal_value(target, pert2, A, v, y; regularization)
 
-      @test NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_analytic(target, pert1, A, v, y; regularization) ≈ 
-            NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_analytic(target, pert2, A, v, y; regularization)
+      @test NearestUnstableMatrix.Euclidean_gradient_analytic(target, pert1, A, v, y; regularization) ≈ 
+            NearestUnstableMatrix.Euclidean_gradient_analytic(target, pert2, A, v, y; regularization)
 
 end
 
@@ -270,7 +270,7 @@ end
       starting_regularization=3., 
       outer_iterations=30, 
       regularization_damping=0.7,
-      gradient=NearestUnstableMatrix.reduced_augmented_Lagrangian_Euclidean_gradient_analytic, 
+      gradient=NearestUnstableMatrix.Euclidean_gradient_analytic, 
       verbose=false,
       # Optim.jl options
       g_tol=1e-6, 
