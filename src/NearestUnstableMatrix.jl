@@ -11,7 +11,7 @@ import Manifolds: project
 
 export minimizer, optimal_value, minimizer_AplusE, compute_M,
     realgradient, realgradient_zygote,
-    InsideDisc, OutsideDisc, NonHurwitz, NonSchur,  RightOf, Singular,
+    InsideDisc, OutsideDisc, NonHurwitz, NonSchur,  RightOf, Singular, PrescribedValue
     precompute, ComplexSparsePerturbation, GeneralPerturbation,
     nearest_unstable, heuristic_zeros,
     ConstantMatrixProduct, lambda_opt,
@@ -43,28 +43,34 @@ struct OutsideDisc{r} <: Region
 end
 OutsideDisc(r) = OutsideDisc{r}()
 const NonSchur = OutsideDisc{1.0}
-"""
-For a matrix polynomial, we take "singular" to mean "singular polynomial", not "an eigenvalue equal to 0",
-since the latter problem doesn't make much sense to consider: to solve it, it is enough to compute 
-the distance of A₀ from singular matrices, ignoring the other coefficients.
-"""
-const Singular = OutsideDisc{0.0}
-
 struct RightOf{r} <: Region
 end
 RightOf(r) = RightOf{r}()
 const NonHurwitz = RightOf{0.0}
 
-function project(d::OutsideDisc{r}, lambda) where r
+struct PrescribedValue{v} <: Region
+end
+PrescribedValue(v) = PrescribedValue{v}()
+"""
+For a matrix polynomial, we take "singular" to mean "singular polynomial", not "an eigenvalue equal to 0",
+since the latter problem doesn't make much sense to consider: to solve it, it is enough to compute 
+the distance of A₀ from singular matrices, ignoring the other coefficients.
+"""
+const Singular = PrescribedValue{0.0}
+
+function project(::OutsideDisc{r}, lambda) where r
     a = abs(lambda)
     return ifelse(a < r, lambda/a*r, lambda)
 end
-function project(d::InsideDisc{r}, lambda) where r
+function project(::InsideDisc{r}, lambda) where r
     a = abs(lambda)
     return ifelse(a > r, lambda/a*r, lambda)
 end
-function project(l::RightOf{r}, lambda) where r
+function project(::RightOf{r}, lambda) where r
     return ifelse(real(lambda)<r, lambda-real(lambda)+r, lambda)
+end
+function project(::PrescribedValue{v}, lambda) where v
+    return v
 end
 
 abstract type PerturbationStructure end
@@ -153,7 +159,14 @@ function lambda_opt(target::Region, pert, Av, v, pc::AbstractVector)
     lambda = project(target, numer / denom)
     return lambda
 end
-lambda_opt(target::Singular, pert, Av, v, pc::AbstractVector; regularization=0.0) = zero(eltype(v))
+lambda_opt(target::PrescribedValue{val}, pert, Av, v, pc::AbstractVector; regularization=0.0) where val = convert(eltype(v), val)
+
+"""
+    Computes the rhs of the constraint M*omega = r
+"""
+function compute_r(target::Region, pert, Av, v, lambda)
+    return v*lambda - Av
+end
 
 """
     `E, lambda = minimizer(target, pert A, v, y; regularization=0.0)`
