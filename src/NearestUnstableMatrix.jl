@@ -179,8 +179,8 @@ function minimizer(target, pert::GeneralPerturbation, A, v, y=nothing; regulariz
     else
         Av = A*v + regularization * y
     end
-    Mv = compute_M(pert, v)
-    pc = svd(Mv)
+    M = compute_M(pert, v)
+    pc = svd(M)
     Uv = pc.U'*v
     UAv = pc.U'*Av
     nv0 = Diagonal(pc.S.^2 .+ regularization) \ Uv
@@ -259,8 +259,8 @@ function optimal_value(target, pert::GeneralPerturbation, A, v, y=nothing; regul
     else
         Av = ConstantMatrixProduct(A)(v) + regularization * y
     end
-    Mv = compute_M(pert, v)
-    pc = svd(Mv)
+    M = compute_M(pert, v)
+    pc = svd(M)
 
     if provided_lambda === nothing
         Uv = pc.U'*v
@@ -301,8 +301,8 @@ function Euclidean_gradient_analytic(target, pert::GeneralPerturbation, A, v, y=
     else
         Av = A*v + regularization * y
     end
-    Mv = compute_M(pert, v)
-    pc = svd(Mv)
+    M = compute_M(pert, v)
+    pc = svd(M)
     Uv = pc.U'*v
     UAv = pc.U'*Av
     nv0 = Diagonal(pc.S.^2 .+ regularization) \ Uv
