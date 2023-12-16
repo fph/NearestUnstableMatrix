@@ -9,7 +9,7 @@ using ChainRulesCore
 using ChainRulesCore: ProjectTo, @not_implemented, @thunk
 import Manifolds: project
 
-export minimizer, optimal_value, minimizer_AplusE, compute_Mv,
+export minimizer, optimal_value, minimizer_AplusE, compute_M,
     realgradient, realgradient_zygote,
     InsideDisc, OutsideDisc, NonHurwitz, NonSchur,  RightOf, Singular,
     precompute, ComplexSparsePerturbation, GeneralPerturbation,
@@ -43,7 +43,13 @@ struct OutsideDisc{r} <: Region
 end
 OutsideDisc(r) = OutsideDisc{r}()
 const NonSchur = OutsideDisc{1.0}
+"""
+For a matrix polynomial, we take "singular" to mean "singular polynomial", not "an eigenvalue equal to 0",
+since the latter problem doesn't make much sense to consider: to solve it, it is enough to compute 
+the distance of A₀ from singular matrices, ignoring the other coefficients.
+"""
 const Singular = OutsideDisc{0.0}
+
 struct RightOf{r} <: Region
 end
 RightOf(r) = RightOf{r}()
@@ -106,15 +112,11 @@ function grcar(n)
     return diagm(-1=>-ones(n-1), 0=>ones(n), 1=>ones(n-1), 2=>ones(n-2), 3=>ones(n-3))
 end
 
-function compute_MvMvt(pert::ComplexSparsePerturbation, v; regularization=0.0)
-    d2 = ConstantMatrixProduct(pert.P)(abs2.(v))
-    return Diagonal(d2)
-end
-
-function compute_Mv(pert::GeneralPerturbation, v)
+function compute_M(pert::GeneralPerturbation, v)
     return reduce(hcat, E*v for E in pert.EE)
 end
-
+# the following is not the most efficient implementation, but we don't plan to use it in tight loops
+compute_M(pert::ComplexSparsePerturbation, v) = compute_M(GeneralPerturbation(pert), v)  
 
 inftozero(x) = ifelse(isinf(x), zero(x), x)
 """
@@ -177,7 +179,7 @@ function minimizer(target, pert::GeneralPerturbation, A, v, y=nothing; regulariz
     else
         Av = A*v + regularization * y
     end
-    Mv = compute_Mv(pert, v)
+    Mv = compute_M(pert, v)
     pc = svd(Mv)
     Uv = pc.U'*v
     UAv = pc.U'*Av
@@ -257,7 +259,7 @@ function optimal_value(target, pert::GeneralPerturbation, A, v, y=nothing; regul
     else
         Av = ConstantMatrixProduct(A)(v) + regularization * y
     end
-    Mv = compute_Mv(pert, v)
+    Mv = compute_M(pert, v)
     pc = svd(Mv)
 
     if provided_lambda === nothing
@@ -299,7 +301,7 @@ function Euclidean_gradient_analytic(target, pert::GeneralPerturbation, A, v, y=
     else
         Av = A*v + regularization * y
     end
-    Mv = compute_Mv(pert, v)
+    Mv = compute_M(pert, v)
     pc = svd(Mv)
     Uv = pc.U'*v
     UAv = pc.U'*Av
