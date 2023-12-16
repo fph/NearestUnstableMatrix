@@ -243,6 +243,7 @@ end
 end
 
 @testset "Grcar" begin
+      Random.seed!(1)
       A = -grcar(6)
       pert = toeplitz_perturbation(A, -1:3)
       target = NonHurwitz()
