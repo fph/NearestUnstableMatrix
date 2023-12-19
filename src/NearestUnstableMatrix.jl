@@ -12,10 +12,11 @@ import Manifolds: project
 export minimizer, optimal_value, minimizer_AplusE, compute_M,
     realgradient, realgradient_zygote,
     InsideDisc, OutsideDisc, NonHurwitz, NonSchur,  RightOf, Singular, PrescribedValue,
-    precompute, ComplexSparsePerturbation, GeneralPerturbation,
+    precompute, ComplexSparsePerturbation, GeneralPerturbation, UnstructuredPerturbation, unstructured_perturbation,
     nearest_unstable, heuristic_zeros,
     ConstantMatrixProduct,
-    project, toeplitz_perturbation, grcar
+    project, toeplitz_perturbation, grcar,
+    MatrixPolynomial
     
 """
     Custom type to wrap matrix multiplication with a constant matrix A, 
@@ -73,6 +74,10 @@ function project(::PrescribedValue{v}, lambda) where v
     return v
 end
 
+const MatrixPolynomial{T} = Array{T, 3} where T
+
+
+
 abstract type PerturbationStructure end
 
 """
@@ -97,6 +102,47 @@ function GeneralPerturbation(pert::ComplexSparsePerturbation)
 end
 
 """
+    abstract type UnstructuredPerturbation <: PerturbationStructure end
+
+Type to represent an unstructured perturbation (all entries of Δ can vary independently).
+
+In this case, we take advantage of the structure of the matrix M and formulate the problem with a multi-column δ.
+"""
+struct UnstructuredPerturbation <: PerturbationStructure
+    m::Int64
+    n::Int64
+    d::Int64
+end
+UnstructuredPerturbation(A::MatrixPolynomial) = UnstructuredPerturbation(size(A,1), size(A,2), size(A,3)-1)
+
+"""
+    unstructured_perturbation(m, n=m)
+    unstructured_perturbation(m, n=m; degree)
+
+Return a GeneralPerturbation corresponding to an unstructured perturbation (i.e., each entry can be perturbed independently)
+of an mxn matrix or a mxn matrix polynomial of given `degree`.
+"""
+function unstructured_perturbation(m, n=m)
+    EE = collect(sparse([i],[j], [1.], m, n) for j=1:n for i=1:m)
+    return GeneralPerturbation(EE)
+end
+function unstructured_perturbation(m, n, degree)
+    EE = MatrixPolynomial{Float64}[]
+    for d = 0:degree
+        for j = 1:n
+            for i = 1:m
+                E = zeros(m, n, degree+1)
+                E[i, j, d+1] = 1.
+                push!(EE, E)
+            end
+        end
+    end
+    return GeneralPerturbation(EE)
+end
+unstructured_perturbation(A::AbstractMatrix) = unstructured_perturbation(size(A,1), size(A,2))
+unstructured_perturbation(A::MatrixPolynomial) = unstructured_perturbation(size(A,1), size(A,2), size(A,3)-1)
+
+"""
     toeplitz_perturbation(n)
     toeplitz_perturbation(A)
 
@@ -106,8 +152,8 @@ function toeplitz_perturbation(n::Number, indices=-(n-1):(n-1))
     EE = collect(1/sqrt(n-abs(k)) * diagm(k => ones(n-abs(k))) for k in indices)
     return GeneralPerturbation(EE)
 end
-toeplitz_perturbation(A::Matrix) = toeplitz_perturbation(size(A,1))
-toeplitz_perturbation(A::Matrix, indices) = toeplitz_perturbation(size(A,1), indices)
+toeplitz_perturbation(A::AbstractMatrix) = toeplitz_perturbation(size(A,1))
+toeplitz_perturbation(A::AbstractMatrix, indices) = toeplitz_perturbation(size(A,1), indices)
 
 """
     grcar(n)
@@ -118,16 +164,46 @@ function grcar(n)
     return diagm(-1=>-ones(n-1), 0=>ones(n), 1=>ones(n-1), 2=>ones(n-2), 3=>ones(n-3))
 end
 
+
+"""
+    sum_pairs(m, n, p)
+
+Return pairs from 1:m 1:n that sum to p. Used for convolution / polynomial products.
+"""
+sum_pairs(m, n, p) = ((i, p-i) for i in max(1, p-n):min(m, p-1))
+"""
+    product_coefficient(A, B, d)
+
+Return the degree-d coefficient of the product A(x)*B(x), given coefficients
+of matrix polynomials A, B in a 3-dimensional array: A[:,:,1] is the constant term.
+"""
+product_coefficient(A, B, d) = sum(A[:,:,i]*B[:,:,j] for (i,j)=sum_pairs(size(A,3), size(B,3), d+2))
+
+"""
+    Function to apply products. Returns the standard matrix product A*v usually, but form matrix polynomials it returns
+    the coefficients of A*v stacked.
+"""
+product(A, v) = ConstantMatrixProduct(A)(v)
+function product(A::MatrixPolynomial, v::MatrixPolynomial)
+    reduce(vcat, product_coefficient(A, v, d) for d=0:size(A,3)+size(v,3)-2)
+end
+product(A::MatrixPolynomial, v::AbstractVector) = product(A, reshape(v, (size(A,2), 1, :)))
+
 """
     compute_M(pert::GeneralPerturbation, v)
 
-Compute the rhs of the constraint M*omega = r.
+Compute the rhs of the constraint M*delta = r.
 """
 function compute_M(pert::GeneralPerturbation, v)
-    return reduce(hcat, E*v for E in pert.EE)
+    return reduce(hcat, product(E,v) for E in pert.EE)
 end
 # the following is not the most efficient implementation, but we don't plan to use it in tight loops
-compute_M(pert::ComplexSparsePerturbation, v) = compute_M(GeneralPerturbation(pert), v)  
+compute_M(pert::ComplexSparsePerturbation, v) = compute_M(GeneralPerturbation(pert), v)
+
+m_row_transpose(i,d,v) = reduce(vcat, i-j in 1:size(v,3) ? v[:,:,i-j] : zero(v[:,:,1]) for j=0:d)
+m_transpose(d,v) = reduce(hcat, m_row_transpose(i,d,v) for i=1:size(v,3)+d)
+compute_M(pert::UnstructuredPerturbation, v::MatrixPolynomial) = transpose(m_transpose(pert.d, v))
+compute_M(pert::UnstructuredPerturbation, v::AbstractVector) = compute_M(pert, reshape(v, (pert.n, 1, :)))
 
 inftozero(x) = ifelse(isinf(x), zero(x), x)
 """
@@ -139,7 +215,7 @@ Computes "something related" to the inverse of the weighting matrix M.
 m2inv[i] = 1 / (||d_i||^2 + epsilon), where d_i is the vector with d_i=1 iff A[i,j]≠0 and 0 otherwise.
 Moreover, the method adjusts the vector such that 1/0=Inf is replaced by 0, to avoid NaNs in further computations.
 
-* For GeneralPerturbation, it is QR(M_v)
+* For GeneralPerturbation, it is SVD(M_v)
 """
 function precompute(pert::ComplexSparsePerturbation, v, regularization; warn=true)
     m2inv = 1 ./ (ConstantMatrixProduct(pert.P)(abs2.(v)) .+ regularization)
@@ -153,21 +229,22 @@ function precompute(pert::ComplexSparsePerturbation, v, regularization; warn=tru
 end
 
 
+# TODO: we need to rethink the compute_r interface. This method needs too many parameters
+# and is too tightly coupled with the rest of the computation.
 """
-    compute_r(target::Region, Av, v, pc::AbstractVector; regularization=0.0)
+    compute_r(target, pert, Av, v, pc; regularization=0.0)
 
-Compute the rhs of the constraint M*omega = r, and returns the pair (r, lambda)
+Compute the rhs of the constraint M*delta = r, and returns the pair (r, lambda)
 """
-function compute_r(target::Region, Av, v, pc::AbstractVector; regularization=0.0)
+function compute_r(target::Region, pert::ComplexSparsePerturbation, Av, v, pc; regularization=0.0)
     nv = v .* pc
     denom = nv' * v
     numer = nv' * Av
     lambda = project(target, numer / denom)
     return v*lambda - Av, lambda
 end
-compute_r(target::PrescribedValue{lambda}, Av, v, pc::AbstractVector; regularization=0.0) where lambda = (v*lambda - Av, convert(eltype(v), lambda))
 
-function compute_r(target::Region, Av, v, pc::SVD; regularization=0.0)
+function compute_r(target::Region, pert::GeneralPerturbation, Av, v, pc; regularization=0.0)
     Uv = pc.U'*v
     UAv = pc.U'*Av
     nv0 = Diagonal(pc.S.^2 .+ regularization) \ Uv
@@ -177,38 +254,58 @@ function compute_r(target::Region, Av, v, pc::SVD; regularization=0.0)
     return v*lambda - Av, lambda
     # TODO: we can actually now compute U'*r, which is used in some cases. Can we refactor to return it?
 end
-compute_r(target::PrescribedValue{lambda}, Av, v, pc::SVD; regularization=0.0) where lambda = (v*lambda - Av, convert(eltype(v), lambda))
+compute_r(target::PrescribedValue{lambda}, pert::ComplexSparsePerturbation, Av, v, pc; regularization=0.0) where lambda = (v*lambda - Av, convert(eltype(v), lambda))
+compute_r(target::PrescribedValue{lambda}, pert::GeneralPerturbation, Av, v, pc; regularization=0.0) where lambda = (v*lambda - Av, convert(eltype(v), lambda))
+compute_r(target::PrescribedValue{lambda}, pert::UnstructuredPerturbation, Av, v, pc; regularization=0.0) where lambda = (v*lambda - Av, convert(eltype(v), lambda))
+compute_r(target::Singular, pert::ComplexSparsePerturbation, Av, v, pc; regularization=0.0) = (-Av, zero(eltype(v)))
+compute_r(target::Singular, pert::GeneralPerturbation, Av, v, pc; regularization=0.0) = (-Av, zero(eltype(v)))
+function compute_r(target::Singular, pert::UnstructuredPerturbation, Av, v, pc; regularization=0.0)
+    return (transpose(-reshape(Av, (pert.m,:))), convert(eltype(v), 0.))
+end
+
+"""
+    compute_E(pert, delta)
+
+Compute the matrix / matrix polynomial E from its basis representation
+"""
+function compute_E(pert::GeneralPerturbation, delta)
+    return reduce(+, E*m for (E,m) in zip(pert.EE, delta))
+end
+function compute_E(pert::UnstructuredPerturbation, delta)
+    # delta = [transpose(E0); transpose(E1); ... ; transpose(Ed)]
+    return permutedims(reshape(delta, (pert.m, pert.n, pert.d+1)), (3,1,2))
+end
 
 """
     E, lambda = minimizer(target, pert A, v, y; regularization=0.0)
 
 Computes the argmin corresponding to `optimal_value`
 """
-function minimizer(target, pert, A, v, y=nothing; regularization=0.0)
+function minimizer(target, pert::ComplexSparsePerturbation, A, v, y=nothing; regularization=0.0)
     if y===nothing
-        Av = A*v
+        Av = product(A,v)
     else
-        Av = A*v + regularization * y
+        Av = product(A,v) + regularization * y
     end
     pc = precompute(pert, v, regularization; warn=!isa(target, Singular))
-    r, lambda = compute_r(target, Av, v, pc; regularization)
+    r, lambda = compute_r(target, pert, Av, v, pc; regularization)
     t = r .* pc
     E = t .* (v' .* pert.P)  # the middle .* broadcasts column * row
     return E, lambda
 end
-function minimizer(target, pert::GeneralPerturbation, A, v, y=nothing; regularization=0.0)
+function minimizer(target, pert, A, v, y=nothing; regularization=0.0)
     if y===nothing
-        Av = A*v
+        Av = product(A,v)
     else
-        Av = A*v + regularization * y
+        Av = product(A,v) + regularization * y
     end
     M = compute_M(pert, v)
     pc = svd(M)
-    r, lambda = compute_r(target, Av, v, pc; regularization)
+    r, lambda = compute_r(target, pert, Av, v, pc; regularization)
     t = pc.U' * r
     # TODO: tweak compute_r to return U'*r directly
-    omega = pc.V * (Diagonal(pc.S ./ (pc.S.^2 .+ regularization)) * t)
-    E = reduce(+, E*m for (E,m) in zip(pert.EE, omega))
+    delta = pc.V * (Diagonal(pc.S ./ (pc.S.^2 .+ regularization)) * t)
+    E = compute_E(pert, delta)
     return E, lambda
 end
 
@@ -219,12 +316,12 @@ Computes the value of A+E
 """
 function minimizer_AplusE(target, pert::ComplexSparsePerturbation, A, v, y=nothing; regularization=0.0)
     if y===nothing
-        Av = A*v
+        Av = product(A,v)
     else
-        Av = A*v + regularization * y
+        Av = product(A,v) + regularization * y
     end
     pc = precompute(pert, v, regularization; warn=!isa(target, Singular))
-    r, lambda = compute_r(target, Av, v, pc; regularization)
+    r, lambda = compute_r(target, pert, Av, v, pc; regularization)
     nv = pc .* r
     t1 = (v*lambda) .* pc
     vP = v' .* pert.P  # matrix with the nonzero structure of A but elements conj(v_j)
@@ -255,29 +352,42 @@ Computes optval = min_{E ∈ pert} ||E||^2 s.t. (A+E)v = v*λ
 
 If y is given, computes the reduced augmented Lagrangian (augmented Lagrangian) - ε ||y||².
 """
-function optimal_value(target, pert, A, v, y=nothing; regularization=0.0)
+function optimal_value(target, pert::ComplexSparsePerturbation, A, v, y=nothing; regularization=0.0)
     if y===nothing
-        Av = ConstantMatrixProduct(A)(v)
+        Av = product(A,v)
     else
-        Av = ConstantMatrixProduct(A)(v) + regularization * y
+        Av = product(A,v) + regularization * y
     end
     pc = precompute(pert, v, regularization; warn=!isa(target, Singular))
-    r, lambda = compute_r(target, Av, v, pc; regularization)
+    r, lambda = compute_r(target, pert, Av, v, pc; regularization)
     optval = sum(abs2.(r) .* pc)
     return optval
 end
 
-function optimal_value(target, pert::GeneralPerturbation, A, v, y=nothing; regularization=0.0)
+function optimal_value(target, pert, A, v, y=nothing; regularization=0.0)
     if y===nothing
-        Av = ConstantMatrixProduct(A)(v)
+        Av = product(A,v)
     else
-        Av = ConstantMatrixProduct(A)(v) + regularization * y
+        Av = product(A,v) + regularization * y
     end
     M = compute_M(pert, v)
     pc = svd(M)
-    r, lambda = compute_r(target, Av, v, pc; regularization)
-    t = pc.U' * r    
-    return sum(abs2.(t) ./ (pc.S.^2 .+ regularization))
+    r, lambda = compute_r(target, pert, Av, v, pc; regularization)
+    t = pc.U' * r
+    return sum((Diagonal(pc.S)^2 + regularization*I)  \ abs2.(t))
+end
+
+function optimal_vector_entries(target, pert, A, v, y=nothing)
+    if y===nothing
+        Av = product(A,v)
+    else
+        Av = product(A,v) + 0. * y
+    end
+    M = compute_M(pert, v)
+    pc = svd(M)
+    r, lambda = compute_r(target, pert, Av, v, pc; regularization=0.)
+    t = pc.U' * r
+    return Diagonal(pc.S)^2 \ abs2.(t)
 end
 
 function Euclidean_gradient_zygote(target, pert, A, v, y=nothing; regularization=0.0)
@@ -286,12 +396,12 @@ end
 
 function Euclidean_gradient_analytic(target, pert, A, v, y=nothing; regularization=0.0)
     if y===nothing
-        Av = A*v
+        Av = product(A,v)
     else
-        Av = A*v + regularization * y
+        Av = product(A,v) + regularization * y
     end
     pc = precompute(pert, v, regularization; warn=!isa(target, Singular))
-    r, lambda = compute_r(target, Av, v, pc; regularization)
+    r, lambda = compute_r(target, pert, Av, v, pc; regularization)
     nv = -r .* pc
     grad = 2(A'*nv - nv*lambda' - (pert.P' * abs2.(nv)) .* v)
     return grad
@@ -299,17 +409,17 @@ end
 
 function Euclidean_gradient_analytic(target, pert::GeneralPerturbation, A, v, y=nothing; regularization=0.0)
     if y===nothing
-        Av = A*v
+        Av = product(A,v)
     else
-        Av = A*v + regularization * y
+        Av = product(A,v) + regularization * y
     end
     M = compute_M(pert, v)
     pc = svd(M)
-    r, lambda = compute_r(target, Av, v, pc; regularization)
+    r, lambda = compute_r(target, pert, Av, v, pc; regularization)
     t = pc.U' * r
-    omega = pc.V * (Diagonal(pc.S ./ (pc.S.^2 .+ regularization)) * t)    
+    delta = pc.V * (Diagonal(pc.S ./ (pc.S.^2 .+ regularization)) * t)    
     nv = pc.U * (Diagonal(1 ./ (pc.S.^2 .+ regularization)) * t)
-    AplusE = reduce(+, (m*E for (E,m) in zip(pert.EE, omega)); init=A)
+    AplusE = A + compute_E(pert, delta)
     return 2(nv*lambda' - AplusE' * nv)
 end
 
@@ -346,6 +456,15 @@ function realhessian_zygote(f, cv)
     return H
 end
 
+function constraint(target::Singular, pert, A, E, x, lambda)
+    return product(A+E, x)
+end
+function constraint(target, pert, A, E, x, lambda)
+    return product(A+E, x) - x*lambda
+end
+
+
+
 using Manifolds, Manopt
 """
     nearest_unstable(target, pert, A, args...; optimizer=Manopt.trust_regions)
@@ -357,7 +476,7 @@ function nearest_unstable(target, pert, A, x0; regularization=0.0,
                                                     optimizer=Manopt.trust_regions, 
                                                     gradient=Euclidean_gradient_analytic,
                                                     kwargs...)
-    n = size(A,1)
+    n = length(x0)
     M = Manifolds.Sphere(n-1, eltype(x0)<:Complex ? ℂ : ℝ)
 
     f(M, v) = optimal_value(target, pert, A, v; regularization)
@@ -396,7 +515,7 @@ function nearest_unstable_penalty_method!(target, pert, A, x;
                         starting_regularization=1.,
                         regularization_damping = 0.75, kwargs...)
 
-    n = size(A,1)
+    n = length(x)
     M = Manifolds.Sphere(n-1, eltype(x)<:Complex ? ℂ : ℝ)
     regularization = starting_regularization
 
@@ -408,7 +527,7 @@ function nearest_unstable_penalty_method!(target, pert, A, x;
     df.f = [optimal_value(target, pert, A, x)]
     df.f_reg = [optimal_value(target, pert, A, x; regularization)]
     df.f_heuristic = [NearestUnstableMatrix.heuristic_zeros(target, pert, A, x)[2]]
-    df.constraint_violation = [norm((A+E)*x - x*lambda)]
+    df.constraint_violation = [norm(constraint(target, pert, A, E, x, lambda))]
     
     for k = 1:outer_iterations
         @show k
@@ -439,14 +558,14 @@ function nearest_unstable_penalty_method!(target, pert, A, x;
             optimal_value(target, pert, A, x),
             optimal_value(target, pert, A, x; regularization),
             NearestUnstableMatrix.heuristic_zeros(target, pert, A, x)[2],
-            norm((A+E)*x - x*lambda),
+            norm(constraint(target, pert, A, E, x, lambda)),
             ]
         )
 
         regularization = regularization * regularization_damping
     end
 
-    return x, df
+    return df
 end
 
 
@@ -456,9 +575,9 @@ function nearest_unstable_augmented_Lagrangian_method!(target, pert, A, x; optim
                                                     starting_regularization=1., 
                                                     regularization_damping = 0.8,
                                                     kwargs...)
-    n = size(A,1)
+    n = length(x)
     M = Manifolds.Sphere(n-1, eltype(x)<:Complex ? ℂ : ℝ)
-    y = zero(x)
+    y = zero(product(A,x))
     regularization = starting_regularization
 
     E, lambda = minimizer(target, pert, A, x, y; regularization)
@@ -469,7 +588,7 @@ function nearest_unstable_augmented_Lagrangian_method!(target, pert, A, x; optim
     df.f = [optimal_value(target, pert, A, x)]
     df.f_reg = [optimal_value(target, pert, A, x; regularization)]
     df.f_heuristic = [NearestUnstableMatrix.heuristic_zeros(target, pert, A, x)[2]]
-    df.constraint_violation = [norm((A+E)*x - x*lambda)]
+    df.constraint_violation = [norm(constraint(target, pert, A, E, x, lambda))]
     df.normy = [norm(y)]
     df.augmented_Lagrangian = [optimal_value(target, pert, A, x, y; regularization) - regularization*norm(y)^2]
     
@@ -491,15 +610,15 @@ function nearest_unstable_augmented_Lagrangian_method!(target, pert, A, x; optim
             optimal_value(target, pert, A, x),
             optimal_value(target, pert, A, x; regularization),
             NearestUnstableMatrix.heuristic_zeros(target, pert, A, x)[2],
-            norm((A+E)*x - x*lambda),
+            norm(constraint(target, pert, A, E, x, lambda)),
             norm(y),
             optimal_value(target, pert, A, x, y; regularization) - regularization*norm(y)^2
             ]
         )
 
-        #TODO: compare accuracy of this formula with the vanilla update y .= y + (1/regularization) * ((A+E)*x - x*lambda)
-        # y .= pc .* (A*x + regularization*y - x*lambda)
-        y .= y + (1/regularization) * ((A+E)*x - x*lambda)
+        #TODO: compare accuracy of this formula with the vanilla update y .= y + (1/regularization) * (constraint(target, pert, A, E, x, lambda))
+        # y .= pc .* (constraint(target, pert, A, E, x, lambda) + regularization*y)
+        y .= y + (1/regularization) * (constraint(target, pert, A, E, x, lambda))
         regularization = regularization * regularization_damping
 
     end
@@ -596,7 +715,7 @@ This is skipped only if `isa(target, Singular)`. Even if one is interested in ce
 function insert_zero_heuristic!(target, pert::ComplexSparsePerturbation, A, v)
     Av = ConstantMatrixProduct(A)(v)
     pc = precompute(pert, v, 0.; warn=false)
-    r, lambda = compute_r(target, Av, v, pc)
+    r, lambda = compute_r(target, pert, Av, v, pc)
     m2 = ConstantMatrixProduct(pert.P)(abs2.(v))
     lstsq_smallness = m2 + abs2.(r)
     _, i = findmin(x -> x==0 ? Inf : x,  lstsq_smallness)
@@ -628,6 +747,6 @@ function heuristic_zeros(target, pert::ComplexSparsePerturbation, A, v_)
     end
     return bestvec, bestval
 end
-heuristic_zeros(target, pert::GeneralPerturbation, A, v_) = (NaN, NaN)  # not implemented yet
+heuristic_zeros(target, pert, A, v_) = (NaN, NaN)  # not implemented yet
 
 end # module
