@@ -190,7 +190,9 @@ of matrix polynomials A, B in a 3-dimensional array: A[:,:,1] is the constant te
 product_coefficient(A, B, d) = sum(A[:,:,i]*B[:,:,j] for (i,j)=sum_pairs(size(A,3), size(B,3), d+2))
 
 """
-    Function to apply products. Returns the standard matrix product A*v usually, but form matrix polynomials it returns
+    product(A, v)
+
+Returns the standard matrix product A*v typically, but form matrix polynomials it returns
     the coefficients of A*v stacked.
 """
 product(A, v) = ConstantMatrixProduct(A)(v)
@@ -198,6 +200,25 @@ function product(A::MatrixPolynomial, v::MatrixPolynomial)
     reduce(vcat, product_coefficient(A, v, d) for d=0:size(A,3)+size(v,3)-2)
 end
 product(A::MatrixPolynomial, v::AbstractVector) = product(A, reshape(v, (size(A,2), 1, :)))
+
+"""
+    adjoint_product(A, z)
+
+Returns A'*z typically, but for matrix polynomials it returns the stacked product by shifted versions of [A0 A1 ... Ad]:
+```
+[A0 A1 ... Ad      ]
+[   A0 A1 ... Ad   ]
+[      ....        ] * z
+[      A0 A1 ... Ad]
+```
+"""
+adjoint_product(A, v) = A' * v
+function adjoint_product(A::MatrixPolynomial, z)
+    n = size(A, 2)
+    d = size(A, 3) - 1
+    k = Int(length(z) / n)
+    reshape(reduce(vcat, sum(A[:,:,i+1]' * z[(h+i)*n+1:(h+i+1)*n] for i=0:d) for h=0:k-d-1), (n,1,k-d))
+end
 
 """
     compute_M(pert::GeneralPerturbation, v)
@@ -407,7 +428,7 @@ function Euclidean_gradient_zygote(target, pert, A, v, y=nothing; regularization
     return first(realgradient_zygote(x -> optimal_value(target, pert, A, x, y; regularization), v))
 end
 
-function Euclidean_gradient_analytic(target, pert, A, v, y=nothing; regularization=0.0)
+function Euclidean_gradient_analytic(target, pert::ComplexSparsePerturbation, A, v, y=nothing; regularization=0.0)
     if y===nothing
         Av = product(A,v)
     else
@@ -420,7 +441,7 @@ function Euclidean_gradient_analytic(target, pert, A, v, y=nothing; regularizati
     return grad
 end
 
-function Euclidean_gradient_analytic(target, pert::GeneralPerturbation, A, v, y=nothing; regularization=0.0)
+function Euclidean_gradient_analytic(target, pert, A, v, y=nothing; regularization=0.0)
     if y===nothing
         Av = product(A,v)
     else
@@ -430,13 +451,14 @@ function Euclidean_gradient_analytic(target, pert::GeneralPerturbation, A, v, y=
     pc = svd(M)
     r, lambda = compute_r(target, pert, Av, v, pc; regularization)
     t = pc.U' * r
-    delta = pc.V * (Diagonal(pc.S ./ (pc.S.^2 .+ regularization)) * t)    
+    delta = pc.V * (Diagonal(pc.S ./ (pc.S.^2 .+ regularization)) * t)
     nv = pc.U * (Diagonal(1 ./ (pc.S.^2 .+ regularization)) * t)
+    vecnv = transpose(nv)[:]  # undoes matrix structure for the UnstructuredPerturbation, a no-op otherwise
     AplusE = A + compute_E(pert, delta)
     if iszero(lambda)
-        return -2(AplusE' * nv)
+        return -2 * adjoint_product(AplusE, vecnv)
     else
-        return 2(nv*lambda' - AplusE' * nv)
+        return 2(nv*lambda' - adjoint_product(AplusE, vecnv))
     end
 end
 
