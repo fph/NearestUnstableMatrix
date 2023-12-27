@@ -217,7 +217,8 @@ function adjoint_product(A::MatrixPolynomial, z)
     n = size(A, 2)
     d = size(A, 3) - 1
     k = Int(length(z) / n)
-    reshape(reduce(vcat, sum(A[:,:,i+1]' * z[(h+i)*n+1:(h+i+1)*n] for i=0:d) for h=0:k-d-1), (n,1,k-d))
+    # reshape(reduce(vcat, sum(A[:,:,i+1]' * z[(h+i)*n+1:(h+i+1)*n] for i=0:d) for h=0:k-d-1), (n,1,k-d))
+    reduce(vcat, sum(A[:,:,i+1]' * z[(h+i)*n+1:(h+i+1)*n] for i=0:d) for h=0:k-d-1)
 end
 
 """
@@ -443,9 +444,9 @@ end
 
 function Euclidean_gradient_analytic(target, pert, A, v, y=nothing; regularization=0.0)
     if y===nothing
-        Av = product(A,v)
+        Av = product(A, v)
     else
-        Av = product(A,v) + regularization * y
+        Av = product(A, v) + regularization * y
     end
     M = compute_M(pert, v)
     pc = svd(M)
