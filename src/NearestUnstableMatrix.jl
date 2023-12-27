@@ -115,6 +115,13 @@ struct UnstructuredPerturbation <: PerturbationStructure
 end
 UnstructuredPerturbation(A::MatrixPolynomial) = UnstructuredPerturbation(size(A,1), size(A,2), size(A,3)-1)
 
+function M_perturbation(pert, M::AbstractMatrix)
+    vlength = pert.n * (size(M,1) - pert.d)
+    id = Matrix(I, vlength, vlength)
+    EE = [transpose(compute_M(pert, Float64.(y))) for y in eachcol(id)]
+    return GeneralPerturbation(EE)
+end
+
 """
     unstructured_perturbation(m, n=m)
     unstructured_perturbation(m, n=m; degree)
@@ -377,7 +384,7 @@ function optimal_value(target, pert, A, v, y=nothing; regularization=0.0)
     return sum((Diagonal(pc.S)^2 + regularization*I)  \ abs2.(t))
 end
 
-function optimal_vector_entries(target, pert, A, v, y=nothing)
+function optimal_vector_entries(target, pert, A, v, y=nothing; regularization=0.)
     if y===nothing
         Av = product(A,v)
     else
@@ -385,9 +392,9 @@ function optimal_vector_entries(target, pert, A, v, y=nothing)
     end
     M = compute_M(pert, v)
     pc = svd(M)
-    r, lambda = compute_r(target, pert, Av, v, pc; regularization=0.)
+    r, lambda = compute_r(target, pert, Av, v, pc; regularization)
     t = pc.U' * r
-    return Diagonal(pc.S)^2 \ abs2.(t)
+    return hcat(pc.S, Diagonal(pc.S)^2 \ abs2.(t))
 end
 
 function Euclidean_gradient_zygote(target, pert, A, v, y=nothing; regularization=0.0)
@@ -420,7 +427,11 @@ function Euclidean_gradient_analytic(target, pert::GeneralPerturbation, A, v, y=
     delta = pc.V * (Diagonal(pc.S ./ (pc.S.^2 .+ regularization)) * t)    
     nv = pc.U * (Diagonal(1 ./ (pc.S.^2 .+ regularization)) * t)
     AplusE = A + compute_E(pert, delta)
-    return 2(nv*lambda' - AplusE' * nv)
+    if iszero(lambda)
+        return -2(AplusE' * nv)
+    else
+        return 2(nv*lambda' - AplusE' * nv)
+    end
 end
 
 """
@@ -574,6 +585,8 @@ function nearest_unstable_augmented_Lagrangian_method!(target, pert, A, x; optim
                                                     outer_iterations=60,
                                                     starting_regularization=1., 
                                                     regularization_damping = 0.8,
+                                                    adjust_speed=false,
+                                                    target_iterations = 800,
                                                     kwargs...)
     n = length(x)
     M = Manifolds.Sphere(n-1, eltype(x)<:Complex ? ℂ : ℝ)
@@ -619,8 +632,23 @@ function nearest_unstable_augmented_Lagrangian_method!(target, pert, A, x; optim
         #TODO: compare accuracy of this formula with the vanilla update y .= y + (1/regularization) * (constraint(target, pert, A, E, x, lambda))
         # y .= pc .* (constraint(target, pert, A, E, x, lambda) + regularization*y)
         y .= y + (1/regularization) * (constraint(target, pert, A, E, x, lambda))
-        regularization = regularization * regularization_damping
+        @show norm(y)
+        @show constraint_violation = norm(constraint(target, pert, A, E, x, lambda))
+        @show lagrangian = optimal_value(target, pert, A, x, y; regularization) - regularization*norm(y)^2
 
+        if adjust_speed
+            inner_its = length(get_record(R))
+            if inner_its < 300
+                regularization = regularization * regularization_damping^2
+            elseif inner_its < 1000
+                regularization = regularization * regularization_damping
+            else
+                regularization = regularization * sqrt(regularization_damping)
+            end
+        else
+            regularization = regularization * regularization_damping
+        end
+        @show regularization
     end
 
     return df
@@ -680,6 +708,7 @@ function nearest_unstable_augmented_Lagrangian_method_optim(target, pert, A, x0;
     end
     return x
 end
+
 
 
 """
