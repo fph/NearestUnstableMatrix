@@ -102,7 +102,7 @@ function GeneralPerturbation(pert::ComplexSparsePerturbation)
 end
 
 """
-    abstract type UnstructuredPerturbation <: PerturbationStructure end
+    struct UnstructuredPerturbation <: PerturbationStructure end
 
 Type to represent an unstructured perturbation (all entries of Δ can vary independently).
 
@@ -115,6 +115,9 @@ struct UnstructuredPerturbation <: PerturbationStructure
 end
 UnstructuredPerturbation(A::MatrixPolynomial) = UnstructuredPerturbation(size(A,1), size(A,2), size(A,3)-1)
 
+"""
+    Returns a GeneralPerturbation corresponding to perturbing entries of the matrix polynomial v to make V exactly singular.
+"""
 function M_perturbation(pert, M::AbstractMatrix)
     vlength = pert.n * (size(M,1) - pert.d)
     id = Matrix(I, vlength, vlength)
@@ -384,11 +387,14 @@ function optimal_value(target, pert, A, v, y=nothing; regularization=0.0)
     return sum((Diagonal(pc.S)^2 + regularization*I)  \ abs2.(t))
 end
 
+"""
+Returns a nx2 matrix with the singular values of M in the first column, and the summands that compose optimal_value "along" each singular value
+"""
 function optimal_vector_entries(target, pert, A, v, y=nothing; regularization=0.)
     if y===nothing
         Av = product(A,v)
     else
-        Av = product(A,v) + 0. * y
+        Av = product(A,v) + regularization * y
     end
     M = compute_M(pert, v)
     pc = svd(M)
