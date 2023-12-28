@@ -305,7 +305,7 @@ function compute_E(pert::GeneralPerturbation, delta)
 end
 function compute_E(pert::UnstructuredPerturbation, delta)
     # delta = [transpose(E0); transpose(E1); ... ; transpose(Ed)]
-    return permutedims(reshape(delta, (pert.m, pert.n, pert.d+1)), (3,1,2))
+    return permutedims(reshape(delta, (pert.n, pert.d+1, pert.m)), (3,1,2))
 end
 
 """
