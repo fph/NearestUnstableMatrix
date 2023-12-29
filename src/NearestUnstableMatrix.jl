@@ -633,6 +633,7 @@ function nearest_unstable_augmented_Lagrangian_method!(target, pert, A, x; optim
     df.constraint_violation = [norm(constraint(target, pert, A, E, x, lambda))]
     df.normy = [norm(y)]
     df.augmented_Lagrangian = [optimal_value(target, pert, A, x, y; regularization) - regularization*norm(y)^2]
+    df.minsvd = [minimum(svdvals(compute_M(pert, x)))]
     
     for k = 1:outer_iterations        
         if any(isnan.(x))
@@ -654,7 +655,8 @@ function nearest_unstable_augmented_Lagrangian_method!(target, pert, A, x; optim
             NearestUnstableMatrix.heuristic_zeros(target, pert, A, x)[2],
             norm(constraint(target, pert, A, E, x, lambda)),
             norm(y),
-            optimal_value(target, pert, A, x, y; regularization) - regularization*norm(y)^2
+            optimal_value(target, pert, A, x, y; regularization) - regularization*norm(y)^2,
+            minimum(svdvals(compute_M(pert, x)))
             ]
         )
 
