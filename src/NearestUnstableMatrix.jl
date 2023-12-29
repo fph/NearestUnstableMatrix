@@ -588,21 +588,29 @@ function nearest_unstable_penalty_method!(target, pert, A, x;
             gr = gradient(target, pert, A, v; regularization)
             return project(M, v, gr)
         end
-    
-        R = optimizer(M, f, g, x; return_state=true, record=[:Iteration], kwargs...)
-        E, lambda = minimizer(target, pert, A, x; regularization)
-        
-        # populate results
-        push!(df, 
-            [k, regularization, length(get_record(R)), 
-            optimal_value(target, pert, A, x),
-            optimal_value(target, pert, A, x; regularization),
-            NearestUnstableMatrix.heuristic_zeros(target, pert, A, x)[2],
-            norm(constraint(target, pert, A, E, x, lambda)),
-            ]
-        )
+        try
+            R = optimizer(M, f, g, x; return_state=true, record=[:Iteration], kwargs...)
+            E, lambda = minimizer(target, pert, A, x; regularization)
+            
+            # populate results
+            push!(df, 
+                [k, regularization, length(get_record(R)), 
+                optimal_value(target, pert, A, x),
+                optimal_value(target, pert, A, x; regularization),
+                NearestUnstableMatrix.heuristic_zeros(target, pert, A, x)[2],
+                norm(constraint(target, pert, A, E, x, lambda)),
+                ]
+            )
 
-        regularization = regularization * regularization_damping
+            regularization = regularization * regularization_damping
+        catch e
+            if isa(e, InterruptException)
+                @info "Got interrupt, exiting"
+                break
+            else 
+                rethrow()
+            end
+        end
     end
 
     return df
@@ -645,41 +653,50 @@ function nearest_unstable_augmented_Lagrangian_method!(target, pert, A, x; optim
             gr = gradient(target, pert, A, v, y; regularization)
             return project(M, v, gr)
         end
+        try
+            R = optimizer(M, f, g_zygote, x; return_state=true, record=[:Iteration], kwargs...)
+            E, lambda = minimizer(target, pert, A, x, y; regularization)
+            push!(df,
+                [k, regularization, length(get_record(R)), 
+                optimal_value(target, pert, A, x),
+                optimal_value(target, pert, A, x; regularization),
+                NearestUnstableMatrix.heuristic_zeros(target, pert, A, x)[2],
+                norm(constraint(target, pert, A, E, x, lambda)),
+                norm(y),
+                optimal_value(target, pert, A, x, y; regularization) - regularization*norm(y)^2,
+                minimum(svdvals(compute_M(pert, x)))
+                ]
+            )
 
-        R = optimizer(M, f, g_zygote, x; return_state=true, record=[:Iteration], kwargs...)
-        E, lambda = minimizer(target, pert, A, x, y; regularization)
-        push!(df,
-            [k, regularization, length(get_record(R)), 
-            optimal_value(target, pert, A, x),
-            optimal_value(target, pert, A, x; regularization),
-            NearestUnstableMatrix.heuristic_zeros(target, pert, A, x)[2],
-            norm(constraint(target, pert, A, E, x, lambda)),
-            norm(y),
-            optimal_value(target, pert, A, x, y; regularization) - regularization*norm(y)^2,
-            minimum(svdvals(compute_M(pert, x)))
-            ]
-        )
+            #TODO: compare accuracy of this formula with the vanilla update y .= y + (1/regularization) * (constraint(target, pert, A, E, x, lambda))
+            # y .= pc .* (constraint(target, pert, A, E, x, lambda) + regularization*y)
+            y .= y + (1/regularization) * (constraint(target, pert, A, E, x, lambda))
+            @show norm(y)
+            @show constraint_violation = norm(constraint(target, pert, A, E, x, lambda))
+            @show lagrangian = optimal_value(target, pert, A, x, y; regularization) - regularization*norm(y)^2
 
-        #TODO: compare accuracy of this formula with the vanilla update y .= y + (1/regularization) * (constraint(target, pert, A, E, x, lambda))
-        # y .= pc .* (constraint(target, pert, A, E, x, lambda) + regularization*y)
-        y .= y + (1/regularization) * (constraint(target, pert, A, E, x, lambda))
-        @show norm(y)
-        @show constraint_violation = norm(constraint(target, pert, A, E, x, lambda))
-        @show lagrangian = optimal_value(target, pert, A, x, y; regularization) - regularization*norm(y)^2
-
-        if adjust_speed
-            inner_its = length(get_record(R))
-            if inner_its < 300
-                regularization = regularization * regularization_damping^2
-            elseif inner_its < 1000
-                regularization = regularization * regularization_damping
+            if adjust_speed
+                inner_its = length(get_record(R))
+                if inner_its < 300
+                    regularization = regularization * regularization_damping^2
+                elseif inner_its < 1000
+                    regularization = regularization * regularization_damping
+                else
+                    regularization = regularization * sqrt(regularization_damping)
+                end
             else
-                regularization = regularization * sqrt(regularization_damping)
+                regularization = regularization * regularization_damping
             end
-        else
-            regularization = regularization * regularization_damping
+            @show regularization
+        
+        catch e
+            if isa(e, InterruptException)
+                @info "Got interrupt, exiting"
+                break
+            else 
+                rethrow()
+            end
         end
-        @show regularization
     end
 
     return df
