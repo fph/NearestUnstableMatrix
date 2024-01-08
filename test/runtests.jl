@@ -242,6 +242,38 @@ end
       @assert fval ≈ norm(E)^2 + norm((A+E)*x-x*lambda)^2/regularization
 end
 
+@testset "Matrix polynomials" begin
+      Random.seed!(0)
+      target = Singular()
+      n = 4
+      k = 2
+      d = 4
+      A = randn(ComplexF64, (n, n, k+1))
+      v = randn(ComplexF64, (n, 1, d+1))
+      O = zeros(n,n)
+      T = [A[:,:,1] O        O        O        O; 
+           A[:,:,2] A[:,:,1] O        O        O;
+           A[:,:,3] A[:,:,2] A[:,:,1] O        O;
+           O        A[:,:,3] A[:,:,2] A[:,:,1] O;
+           O        O        A[:,:,3] A[:,:,2] A[:,:,1];
+           O        O        O        A[:,:,3] A[:,:,2];
+           O        O        O        O        A[:,:,3]]
+      @test NearestUnstableMatrix.product(A, v) ≈ T*v[:]
+      y = randn(ComplexF64, n*(k+d+1))
+      @test NearestUnstableMatrix.adjoint_product(A, y) ≈ T'*y
+
+      pert1 = UnstructuredPerturbation(A)
+      pert2 = unstructured_perturbation(A)
+      @test optimal_value(target, pert1, A, v, y; regularization=0.1) ≈ optimal_value(target, pert2, A, v, y; regularization=0.1)
+      @test NearestUnstableMatrix.optimal_value_naif(target, pert1, A, v, y; regularization=0.1) ≈ 
+            optimal_value(target, pert1, A, v, y; regularization=0.1)
+      @test NearestUnstableMatrix.Euclidean_gradient_analytic(target, pert1, A, v, y; regularization=0.1) ≈ 
+            NearestUnstableMatrix.Euclidean_gradient_analytic(target, pert2, A, v, y; regularization=0.1)
+
+      @test realgradient(x->NearestUnstableMatrix.optimal_value_naif(target, pert1, A, x, y; regularization=0.1), v[:]) ≈
+            NearestUnstableMatrix.Euclidean_gradient_analytic(target, pert1, A, v, y; regularization=0.1)
+end
+
 @testset "Grcar" begin
       Random.seed!(1)
       A = -grcar(6)

@@ -132,7 +132,7 @@ end
 Return a GeneralPerturbation corresponding to an unstructured perturbation (i.e., each entry can be perturbed independently)
 of an mxn matrix or a mxn matrix polynomial of given `degree`.
 """
-function unstructured_perturbation(m, n=m)
+function unstructured_perturbation(m, n=m) # TODO: refactor as GeneralPerturbation(pert::UnstructuredPerturbation)
     EE = collect(sparse([i],[j], [1.], m, n) for j=1:n for i=1:m)
     return GeneralPerturbation(EE)
 end
@@ -206,10 +206,10 @@ product(A::MatrixPolynomial, v::AbstractVector) = product(A, reshape(v, (size(A,
 
 Returns A'*z typically, but for matrix polynomials it returns the stacked product by shifted versions of [A0 A1 ... Ad]:
 ```
-[A0 A1 ... Ad      ]
-[   A0 A1 ... Ad   ]
-[      ....        ] * z
-[      A0 A1 ... Ad]
+[A0' A1' ... Ad'      ]
+[   A0' A1' ... Ad'   ]
+[      ....  ...      ] * z
+[      A0' A1' ... Ad']
 ```
 """
 adjoint_product(A, v) = A' * v
@@ -412,7 +412,7 @@ end
 """
     Simpler, more unstable implementation but easier to autodiff since it doesn't use the SVD.
 """
-function optimal_value_naif(target::Singular, pert, A, v, y=nothing; regularization=0.0)
+function optimal_value_naif(target::Singular, pert::UnstructuredPerturbation, A, v, y=nothing; regularization=0.0)
     if y===nothing
         Av = product(A,v)
     else
@@ -479,16 +479,47 @@ function Euclidean_gradient_analytic(target, pert, A, v, y=nothing; regularizati
 end
 
 """
+    Euclidean_Hessian_product_analytic(w, target, pert, A, v, y=nothing; regularization = 0.0)
+
+Compute the product H*w, where w is the Euclidean Hessian
+"""
+function Euclidean_Hessian_product_analytic(w, target, pert, A, v, y=nothing; regularization = 0.0)
+    if y===nothing
+        Av = product(A, v)
+    else
+        Av = product(A, v) + regularization * y
+    end
+    M = compute_M(pert, v)
+    pc = svd(M)
+    r, lambda = compute_r(target, pert, Av, v, pc; regularization)
+    t = pc.U' * r
+    delta = pc.V * (Diagonal(pc.S ./ (pc.S.^2 .+ regularization)) * t)
+    z = pc.U * (Diagonal(1 ./ (pc.S.^2 .+ regularization)) * t)
+    N = compute_M(pert, w)
+    
+    AplusE = A + compute_E(pert, delta)
+    
+    vecz = transpose(z)[:]  # undoes matrix structure for the UnstructuredPerturbation, a no-op otherwise
+    @assert lambda == 0 # for now
+
+    rightpart = product(AplusE, w) + M * (N'*z)
+    vecrightpart = transpose(rightpart)[:]  # undoes matrix structure for the UnstructuredPerturbation, a no-op otherwise
+    centerright = pc.U * (Diagonal(1 ./ (pc.S.^2 .+ regularization)) * (pc.U' * vecrightpart))
+    F = compute_E(pert, conj.(M'*centerright))
+    return adjoint_product(F, z) + adjoint_product(AplusE, centerright) # TODO: untested
+end
+
+"""
     g = realgradient(f, cv)
 
 Computes the Euclidean gradient of a function f: C^n -> C^n (seen as C^n ≡ R^{2n}), using forward-mode AD
 """
-function realgradient(f, cv)
+function realgradient(f, cv::AbstractVector)
    n = length(cv)
    gr = ForwardDiff.gradient(x -> f(x[1:n] + 1im * x[n+1:end]), [real(cv); imag(cv)]) 
    return gr[1:n] + 1im * gr[n+1:end]
 end
-function realhessian(f, cv)
+function realhessian(f, cv::AbstractVector)
     n = length(cv)
     H = ForwardDiff.hessian(x -> f(x[1:n] + 1im * x[n+1:end]), [real(cv); imag(cv)]) 
     return H
