@@ -410,6 +410,21 @@ function optimal_value(target, pert, A, v, y=nothing; regularization=0.0)
 end
 
 """
+    Simpler, more unstable implementation but easier to autodiff since it doesn't use the SVD.
+"""
+function optimal_value_naif(target::Singular, pert, A, v, y=nothing; regularization=0.0)
+    if y===nothing
+        Av = product(A,v)
+    else
+        Av = product(A,v) + regularization * y
+    end
+    M = compute_M(pert, v)
+    MM = kron(M, Matrix(I, pert.m, pert.m))
+    r = -Av
+    return real((r' * ((MM*MM' + regularization*I) \ r))[1,1])
+end
+
+"""
 Returns a nx2 matrix with the singular values of M in the first column, and the summands that compose optimal_value "along" each singular value
 """
 function optimal_vector_entries(target, pert, A, v, y=nothing; regularization=0.)
