@@ -282,6 +282,11 @@ end
       rHw = H*[real(w[:]); imag(w[:])]
       @test NearestUnstableMatrix.Euclidean_Hessian_product_analytic(w[:], target, pert1, A, v) ≈ rHw[1:end÷2] + 1im * rHw[end÷2+1:end]
       @test NearestUnstableMatrix.Euclidean_Hessian_product_analytic(w[:], target, pert2, A, v) ≈ rHw[1:end÷2] + 1im * rHw[end÷2+1:end]
+
+      H = NearestUnstableMatrix.realhessian_zygote(x -> NearestUnstableMatrix.optimal_value_naif(target, pert1, A, x, y; regularization=0.1), v[:])
+      rHw = H*[real(w[:]); imag(w[:])]
+      @test NearestUnstableMatrix.Euclidean_Hessian_product_analytic(w[:], target, pert1, A, v, y; regularization=0.1) ≈ rHw[1:end÷2] + 1im * rHw[end÷2+1:end]
+      @test NearestUnstableMatrix.Euclidean_Hessian_product_analytic(w[:], target, pert2, A, v, y; regularization=0.1) ≈ rHw[1:end÷2] + 1im * rHw[end÷2+1:end]
 end
 
 @testset "Grcar" begin

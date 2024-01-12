@@ -468,13 +468,13 @@ function Euclidean_gradient_analytic(target, pert, A, v, y=nothing; regularizati
     r, lambda = compute_r(target, pert, Av, v, pc; regularization)
     t = pc.U' * r
     delta = pc.V * (Diagonal(pc.S ./ (pc.S.^2 .+ regularization)) * t)
-    nv = pc.U * (Diagonal(1 ./ (pc.S.^2 .+ regularization)) * t)
-    vecnv = transpose(nv)[:]  # undoes matrix structure for the UnstructuredPerturbation, a no-op otherwise
+    z = pc.U * (Diagonal(1 ./ (pc.S.^2 .+ regularization)) * t)
+    vecz = transpose(z)[:]  # undoes matrix structure for the UnstructuredPerturbation, a no-op otherwise
     AplusE = A + compute_E(pert, delta)
     if iszero(lambda)
-        return -2 * adjoint_product(AplusE, vecnv)
+        return -2 * adjoint_product(AplusE, vecz)
     else
-        return 2(nv*lambda' - adjoint_product(AplusE, vecnv))
+        return 2(z*lambda' - adjoint_product(AplusE, vecz))
     end
 end
 
@@ -496,9 +496,9 @@ function Euclidean_Hessian_product_analytic(w, target, pert, A, v, y=nothing; re
     t = pc.U' * r
     delta = pc.V * (Diagonal(pc.S ./ (pc.S.^2 .+ regularization)) * t)
     z = pc.U * (Diagonal(1 ./ (pc.S.^2 .+ regularization)) * t)
-    N = compute_M(pert, w)
-    
     AplusE = A + compute_E(pert, delta)
+
+    N = compute_M(pert, w)
     
     rightpart = transpose(reshape(-product(AplusE, w), (:, size(M, 1)))) - M * (N'*z)
     centerright = pc.U * (Diagonal(1 ./ (pc.S.^2 .+ regularization)) * (pc.U' * rightpart))
@@ -616,6 +616,7 @@ function nearest_unstable_penalty_method!(target, pert, A, x;
     df.f_reg = [optimal_value(target, pert, A, x; regularization)]
     df.f_heuristic = [NearestUnstableMatrix.heuristic_zeros(target, pert, A, x)[2]]
     df.constraint_violation = [norm(constraint(target, pert, A, E, x, lambda))]
+    df.minsvd = [minimum(svdvals(compute_M(pert, x)))]
     
     for k = 1:outer_iterations
         @show k
@@ -647,6 +648,7 @@ function nearest_unstable_penalty_method!(target, pert, A, x;
                 optimal_value(target, pert, A, x; regularization),
                 NearestUnstableMatrix.heuristic_zeros(target, pert, A, x)[2],
                 norm(constraint(target, pert, A, E, x, lambda)),
+                minimum(svdvals(compute_M(pert, x)))
                 ]
             )
 
@@ -671,7 +673,7 @@ function nearest_unstable_augmented_Lagrangian_method!(target, pert, A, x; optim
                                                     starting_regularization=1., 
                                                     regularization_damping = 0.8,
                                                     adjust_speed=false,
-                                                    target_iterations = 800,
+                                                    use_Hessian=false,
                                                     kwargs...)
     n = length(x)
     M = Manifolds.Sphere(n-1, eltype(x)<:Complex ? ℂ : ℝ)
@@ -701,8 +703,15 @@ function nearest_unstable_augmented_Lagrangian_method!(target, pert, A, x; optim
             gr = gradient(target, pert, A, v, y; regularization)
             return project(M, v, gr)
         end
+        function hess(M, v, w)
+            return Euclidean_Hessian_product_analytic(w, target, pert, A, v, y; regularization)
+        end
         try
-            R = optimizer(M, f, g_zygote, x; return_state=true, record=[:Iteration], kwargs...)
+            if use_Hessian
+                R = optimizer(M, f, g_zygote, TODO, x; return_state=true, record=[:Iteration], kwargs...)
+            else
+                R = optimizer(M, f, g_zygote, x; return_state=true, record=[:Iteration], kwargs...)
+            end
             E, lambda = minimizer(target, pert, A, x, y; regularization)
             push!(df,
                 [k, regularization, length(get_record(R)), 
