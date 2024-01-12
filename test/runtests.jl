@@ -279,7 +279,9 @@ end
 
       w = randn(ComplexF64, (n, 1, d+1))
       H = NearestUnstableMatrix.realhessian_zygote(x -> NearestUnstableMatrix.optimal_value_naif(target, pert1, A, x), v[:])
-      @test_broken NearestUnstableMatrix.Euclidean_Hessian_product_analytic(w[:], target, pert1, A, v) ≈ H*w
+      rHw = H*[real(w[:]); imag(w[:])]
+      @test NearestUnstableMatrix.Euclidean_Hessian_product_analytic(w[:], target, pert1, A, v) ≈ rHw[1:end÷2] + 1im * rHw[end÷2+1:end]
+      @test NearestUnstableMatrix.Euclidean_Hessian_product_analytic(w[:], target, pert2, A, v) ≈ rHw[1:end÷2] + 1im * rHw[end÷2+1:end]
 end
 
 @testset "Grcar" begin

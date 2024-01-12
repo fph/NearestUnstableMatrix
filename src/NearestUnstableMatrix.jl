@@ -500,13 +500,15 @@ function Euclidean_Hessian_product_analytic(w, target, pert, A, v, y=nothing; re
     
     AplusE = A + compute_E(pert, delta)
     
-    rightpart = transpose(reshape(-product(AplusE, w), (pert.n, :))) - M * (N'*z)
+    rightpart = transpose(reshape(-product(AplusE, w), (:, size(M, 1)))) - M * (N'*z)
     centerright = pc.U * (Diagonal(1 ./ (pc.S.^2 .+ regularization)) * (pc.U' * rightpart))
     vecMstarcenterright = (M'*centerright)[:] # undoes matrix structure for the UnstructuredPerturbation, a no-op otherwise
     F = compute_E(pert, vecMstarcenterright)
     vecNstarz = (N'*z)[:]
     G = compute_E(pert, vecNstarz) # for the second summand z'*N*N'*z #TODO: check
-    return 2(-adjoint_product(F+G, z) - adjoint_product(AplusE, centerright)) # TODO: untested
+    vecz = transpose(z)[:]
+    veccenterright = transpose(centerright)[:]
+    return 2(-adjoint_product(F+G, vecz) - adjoint_product(AplusE, veccenterright)) # TODO: untested
 end
 
 """
