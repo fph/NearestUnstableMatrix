@@ -492,6 +492,7 @@ function Euclidean_Hessian_product_analytic(w, target, pert, A, v, y=nothing; re
     M = compute_M(pert, v)
     pc = svd(M)
     r, lambda = compute_r(target, pert, Av, v, pc; regularization)
+    @assert lambda == 0 # for now
     t = pc.U' * r
     delta = pc.V * (Diagonal(pc.S ./ (pc.S.^2 .+ regularization)) * t)
     z = pc.U * (Diagonal(1 ./ (pc.S.^2 .+ regularization)) * t)
@@ -499,14 +500,13 @@ function Euclidean_Hessian_product_analytic(w, target, pert, A, v, y=nothing; re
     
     AplusE = A + compute_E(pert, delta)
     
-    vecz = transpose(z)[:]  # undoes matrix structure for the UnstructuredPerturbation, a no-op otherwise
-    @assert lambda == 0 # for now
-
-    rightpart = product(AplusE, w) + M * (N'*z)
-    vecrightpart = transpose(rightpart)[:]  # undoes matrix structure for the UnstructuredPerturbation, a no-op otherwise
-    centerright = pc.U * (Diagonal(1 ./ (pc.S.^2 .+ regularization)) * (pc.U' * vecrightpart))
-    F = compute_E(pert, conj.(M'*centerright))
-    return adjoint_product(F, z) + adjoint_product(AplusE, centerright) # TODO: untested
+    rightpart = transpose(reshape(-product(AplusE, w), (pert.n, :))) - M * (N'*z)
+    centerright = pc.U * (Diagonal(1 ./ (pc.S.^2 .+ regularization)) * (pc.U' * rightpart))
+    vecMstarcenterright = (M'*centerright)[:] # undoes matrix structure for the UnstructuredPerturbation, a no-op otherwise
+    F = compute_E(pert, vecMstarcenterright)
+    vecNstarz = (N'*z)[:]
+    G = compute_E(pert, vecNstarz) # for the second summand z'*N*N'*z #TODO: check
+    return 2(-adjoint_product(F+G, z) - adjoint_product(AplusE, centerright)) # TODO: untested
 end
 
 """

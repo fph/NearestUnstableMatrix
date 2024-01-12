@@ -267,11 +267,19 @@ end
       @test optimal_value(target, pert1, A, v, y; regularization=0.1) ≈ optimal_value(target, pert2, A, v, y; regularization=0.1)
       @test NearestUnstableMatrix.optimal_value_naif(target, pert1, A, v, y; regularization=0.1) ≈ 
             optimal_value(target, pert1, A, v, y; regularization=0.1)
+
+      E, lambda = minimizer(target, pert1, A, v)
+      @test optimal_value(target, pert1, A, v) ≈ norm(E)^2
+
       @test NearestUnstableMatrix.Euclidean_gradient_analytic(target, pert1, A, v, y; regularization=0.1) ≈ 
             NearestUnstableMatrix.Euclidean_gradient_analytic(target, pert2, A, v, y; regularization=0.1)
-
+      
       @test realgradient(x->NearestUnstableMatrix.optimal_value_naif(target, pert1, A, x, y; regularization=0.1), v[:]) ≈
             NearestUnstableMatrix.Euclidean_gradient_analytic(target, pert1, A, v, y; regularization=0.1)
+
+      w = randn(ComplexF64, (n, 1, d+1))
+      H = NearestUnstableMatrix.realhessian_zygote(x -> NearestUnstableMatrix.optimal_value_naif(target, pert1, A, x), v[:])
+      @test_broken NearestUnstableMatrix.Euclidean_Hessian_product_analytic(w[:], target, pert1, A, v) ≈ H*w
 end
 
 @testset "Grcar" begin
