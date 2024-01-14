@@ -7,7 +7,10 @@ using DataFrames
 
 using ChainRulesCore
 using ChainRulesCore: ProjectTo, @not_implemented, @thunk
+using ManifoldDiff: riemannian_Hessian
+
 import Manifolds: project
+
 
 export minimizer, optimal_value, minimizer_AplusE, compute_M,
     realgradient, realgradient_zygote,
@@ -479,8 +482,15 @@ function gradient_helper(target, pert, A, v, y=nothing; regularization=0.0)
     return M, z, AplusE, pc, lambda
 end
 
-function Euclidean_gradient_analytic(target, pert, A, v, y=nothing; regularization=0.0)
-    M, z, AplusE, pc, lambda = gradient_helper(target, pert, A, v, y; regularization)
+"""
+    Euclidean_gradient_analytic(target, pert, A, v, y=nothing; regularization=0.0)
+
+Gradient of the objective function
+"""
+Euclidean_gradient_analytic(target, pert, A, v, y=nothing; regularization=0.0) = 
+        Euclidean_gradient_analytic(gradient_helper(target, pert, A, v, y; regularization))
+function Euclidean_gradient_analytic(gradient_helper)
+    M, z, AplusE, pc, lambda = gradient_helper
     vecz = transpose(z)[:]  # undoes matrix structure for the UnstructuredPerturbation, a no-op otherwise
     if iszero(lambda)
         return -2 * adjoint_product(AplusE, vecz)
@@ -494,8 +504,10 @@ end
 
 Compute the product H*w, where w is the Euclidean Hessian
 """
-function Euclidean_Hessian_product_analytic(w, target, pert, A, v, y=nothing; regularization = 0.0)
-    M, z, AplusE, pc, lambda = gradient_helper(target, pert, A, v, y; regularization)
+Euclidean_Hessian_product_analytic(w, target, pert, A, v, y=nothing; regularization = 0.0) = 
+        Euclidean_Hessian_product_analytic(w, pert, gradient_helper(target, pert, A, v, y; regularization); regularization)
+function Euclidean_Hessian_product_analytic(w, pert, gradient_helper; regularization=0.0)
+    M, z, AplusE, pc, lambda = gradient_helper
     @assert lambda == 0 # for now
     N = compute_M(pert, w)
     rightpart = transpose(reshape(-product(AplusE, w), (:, size(M, 1)))) - M * (N'*z)
@@ -504,6 +516,12 @@ function Euclidean_Hessian_product_analytic(w, target, pert, A, v, y=nothing; re
     vecz = transpose(z)[:]
     vecdz = transpose(dz)[:]
     return 2(-adjoint_product(dAplusE, vecz) - adjoint_product(AplusE, vecdz)) # TODO: untested
+end
+
+Euclidean_Hessian_product_and_gradient_analytic(w, target, pert, A, v, y=nothing; regularization = 0.0) =
+    Euclidean_Hessian_product_and_gradient_analytic(w, pert, gradient_helper(target, pert, A, v, y; regularization); regularization)
+function Euclidean_Hessian_product_and_gradient_analytic(w, pert, gradient_helper; regularization=0.0)
+    return Euclidean_Hessian_product_analytic(w, pert, gradient_helper; regularization), Euclidean_gradient_analytic(gradient_helper)
 end
 
 """
@@ -694,18 +712,19 @@ function nearest_unstable_augmented_Lagrangian_method!(target, pert, A, x; optim
         end
         @show k        
         f(M, v) = optimal_value(target, pert, A, v, y; regularization)
-        function g_zygote(M, v)
+        function grad(M, v)
             gr = gradient(target, pert, A, v, y; regularization)
             return project(M, v, gr)
         end
         function hess(M, v, w)
-            return Euclidean_Hessian_product_analytic(w, target, pert, A, v, y; regularization)
+            eh, eg = Euclidean_Hessian_product_and_gradient_analytic(w, target, pert, A, v, y; regularization)
+            return riemannian_Hessian(M, v, eg, eh, w)
         end
         try
             if use_Hessian
-                R = optimizer(M, f, g_zygote, TODO, x; return_state=true, record=[:Iteration], kwargs...)
+                R = optimizer(M, f, grad, hess, x; return_state=true, record=[:Iteration], kwargs...)
             else
-                R = optimizer(M, f, g_zygote, x; return_state=true, record=[:Iteration], kwargs...)
+                R = optimizer(M, f, grad, x; return_state=true, record=[:Iteration], kwargs...)
             end
             E, lambda = minimizer(target, pert, A, x, y; regularization)
             push!(df,
