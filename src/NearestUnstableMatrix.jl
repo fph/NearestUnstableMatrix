@@ -457,7 +457,12 @@ function Euclidean_gradient_analytic(target, pert::ComplexSparsePerturbation, A,
     return grad
 end
 
-function Euclidean_gradient_analytic(target, pert, A, v, y=nothing; regularization=0.0)
+"""
+    M, z, AplusE, pc, lambda = gradient_helper(target, pert, A, v, y=nothing; regularization=0.0)
+
+Return various intermediate results for gradients and Hessians.
+"""
+function gradient_helper(target, pert, A, v, y=nothing; regularization=0.0)
     if y===nothing
         Av = product(A, v)
     else
@@ -469,8 +474,14 @@ function Euclidean_gradient_analytic(target, pert, A, v, y=nothing; regularizati
     t = pc.U' * r
     delta = pc.V * (Diagonal(pc.S ./ (pc.S.^2 .+ regularization)) * t)
     z = pc.U * (Diagonal(1 ./ (pc.S.^2 .+ regularization)) * t)
-    vecz = transpose(z)[:]  # undoes matrix structure for the UnstructuredPerturbation, a no-op otherwise
+    
     AplusE = A + compute_E(pert, delta)
+    return M, z, AplusE, pc, lambda
+end
+
+function Euclidean_gradient_analytic(target, pert, A, v, y=nothing; regularization=0.0)
+    M, z, AplusE, pc, lambda = gradient_helper(target, pert, A, v, y; regularization)
+    vecz = transpose(z)[:]  # undoes matrix structure for the UnstructuredPerturbation, a no-op otherwise
     if iszero(lambda)
         return -2 * adjoint_product(AplusE, vecz)
     else
@@ -484,31 +495,15 @@ end
 Compute the product H*w, where w is the Euclidean Hessian
 """
 function Euclidean_Hessian_product_analytic(w, target, pert, A, v, y=nothing; regularization = 0.0)
-    if y===nothing
-        Av = product(A, v)
-    else
-        Av = product(A, v) + regularization * y
-    end
-    M = compute_M(pert, v)
-    pc = svd(M)
-    r, lambda = compute_r(target, pert, Av, v, pc; regularization)
+    M, z, AplusE, pc, lambda = gradient_helper(target, pert, A, v, y; regularization)
     @assert lambda == 0 # for now
-    t = pc.U' * r
-    delta = pc.V * (Diagonal(pc.S ./ (pc.S.^2 .+ regularization)) * t)
-    z = pc.U * (Diagonal(1 ./ (pc.S.^2 .+ regularization)) * t)
-    AplusE = A + compute_E(pert, delta)
-
     N = compute_M(pert, w)
-    
     rightpart = transpose(reshape(-product(AplusE, w), (:, size(M, 1)))) - M * (N'*z)
-    centerright = pc.U * (Diagonal(1 ./ (pc.S.^2 .+ regularization)) * (pc.U' * rightpart))
-    vecMstarcenterright = (M'*centerright)[:] # undoes matrix structure for the UnstructuredPerturbation, a no-op otherwise
-    F = compute_E(pert, vecMstarcenterright)
-    vecNstarz = (N'*z)[:]
-    G = compute_E(pert, vecNstarz) # for the second summand z'*N*N'*z #TODO: check
+    dz = pc.U * (Diagonal(1 ./ (pc.S.^2 .+ regularization)) * (pc.U' * rightpart))
+    dAplusE = compute_E(pert, (M'*dz + N'*z)[:])
     vecz = transpose(z)[:]
-    veccenterright = transpose(centerright)[:]
-    return 2(-adjoint_product(F+G, vecz) - adjoint_product(AplusE, veccenterright)) # TODO: untested
+    vecdz = transpose(dz)[:]
+    return 2(-adjoint_product(dAplusE, vecz) - adjoint_product(AplusE, vecdz)) # TODO: untested
 end
 
 """
