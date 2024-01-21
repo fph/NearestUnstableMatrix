@@ -16,7 +16,8 @@ export minimizer, optimal_value, minimizer_AplusE, compute_M,
     realgradient, realgradient_zygote,
     InsideDisc, OutsideDisc, NonHurwitz, NonSchur,  RightOf, Singular, PrescribedValue,
     precompute, ComplexSparsePerturbation, GeneralPerturbation, UnstructuredPerturbation, unstructured_perturbation,
-    nearest_unstable, heuristic_zeros,
+    nearest_unstable!, nearest_unstable_penalty_method!,
+    heuristic_zeros,
     ConstantMatrixProduct,
     project, toeplitz_perturbation, grcar,
     MatrixPolynomial
@@ -568,26 +569,139 @@ end
 
 using Manifolds, Manopt
 """
-    nearest_unstable(target, pert, A, args...; optimizer=Manopt.trust_regions)
+    nearest_unstable!(target, pert, A, x0; regularization=0.0, 
+        optimizer=Manopt.trust_regions!), gradient=Euclidean_gradient_analytic, kwargs...
 
-Computes v such that (A+E)v = v*lambda, lambda is inside the target region, and ||E||_F is minimal
+Compute v such that (A+E)v = v*lambda, lambda is inside the target region, and ||E||_F is a (local) minimum.
 Additional keyword arguments are passed to the optimizer (for `debug`, `stopping_criterion`, etc.).
+
+x0 is overwritten with the result v. Return `return_state` from Manopt, typically with just the number of iterations.
 """
-function nearest_unstable(target, pert, A, x0; regularization=0.0, 
-                                                    optimizer=Manopt.trust_regions, 
+function nearest_unstable!(target, pert, A, x, y=nothing; regularization=0.0,
+                                                    optimizer=Manopt.quasi_Newton!,                                                     
                                                     gradient=Euclidean_gradient_analytic,
+                                                    use_Hessian=false,
                                                     kwargs...)
-    n = length(x0)
-    M = Manifolds.Sphere(n-1, eltype(x0)<:Complex ? ℂ : ℝ)
+    n = length(x)
+    M = Manifolds.Sphere(n-1, eltype(x)<:Complex ? ℂ : ℝ)
 
-    f(M, v) = optimal_value(target, pert, A, v; regularization)
+    f(M, v) = optimal_value(target, pert, A, v, y; regularization)
 
-    function g(M, v)
-        gr = gradient(target, pert, A, v; regularization)
+    function grad(M, v)
+        gr = gradient(target, pert, A, v, y; regularization)
         return project(M, v, gr)
     end
+    function hess(M, v, w)
+        eh, eg = Euclidean_Hessian_product_and_gradient_analytic(w, target, pert, A, v, y; regularization)
+        return riemannian_Hessian(M, v, eg, eh, w)
+    end
 
-    x = optimizer(M, f, g, x0; kwargs...)
+    if use_Hessian
+        R = optimizer(M, f, grad, hess, x; return_state=true, record=[:Iteration], kwargs...)
+    else
+        R = optimizer(M, f, grad, x; return_state=true, record=[:Iteration], kwargs...)
+    end
+    return R
+end
+
+
+"""
+    nearest_unstable_penalty_method!(target, pert, A, x, y; kwargs...)
+
+Solve the nearest unstable problem with a penalty method, optionally with 
+an augented Lagrangian term (if `y` is given; `y=zero(A*x)` is a reasonable starting value).
+
+`x` and `y` contain initial values, and are overwritten in-place.
+"""
+function nearest_unstable_penalty_method!(target, pert, A, x, y=nothing; optimizer=Manopt.quasi_Newton!,
+                                                    gradient=Euclidean_gradient_analytic,
+                                                    use_Hessian=false,
+                                                    outer_iterations=60,
+                                                    starting_regularization=1., 
+                                                    regularization_damping = 0.8,
+                                                    adjust_speed=false,                                                    
+                                                    verbose=true,
+                                                    kwargs...)
+
+    regularization = starting_regularization
+
+    E, lambda = minimizer(target, pert, A, x, y; regularization)
+    df = DataFrame()
+    df.outer_iteration_number = [0]
+    df.regularization = [regularization]
+    df.inner_iterations = [0]
+    df.f = [optimal_value(target, pert, A, x)]
+    df.f_reg = [optimal_value(target, pert, A, x; regularization)]
+    df.f_heuristic = [NearestUnstableMatrix.heuristic_zeros(target, pert, A, x)[2]]
+    df.constraint_violation = [norm(constraint(target, pert, A, E, x, lambda))]
+    df.normy = [y===nothing ? nothing : norm(y)]
+    df.augmented_Lagrangian = [y===nothing ? nothing : optimal_value(target, pert, A, x, y; regularization) - regularization*norm(y)^2]
+    df.minsvd = [minimum(svdvals(compute_M(pert, x)))]
+
+    for k = 1:outer_iterations        
+        if any(isnan.(x))
+            break
+        end
+        if verbose
+            @show k
+        end
+
+        inner_its = 0 # overwritten after each iteration
+        try
+            R = nearest_unstable!(target, pert, A, x, y; regularization, optimizer, gradient, use_Hessian, kwargs...)
+            inner_its = length(get_record(R))
+        catch e
+            if isa(e, InterruptException)
+                @info "Got interrupt, exiting"
+                break
+            else 
+                rethrow()
+            end
+        end
+
+        E, lambda = minimizer(target, pert, A, x, y; regularization)
+        push!(df,
+            [k, regularization, inner_its, 
+            optimal_value(target, pert, A, x),
+            optimal_value(target, pert, A, x; regularization),
+            NearestUnstableMatrix.heuristic_zeros(target, pert, A, x)[2],
+            norm(constraint(target, pert, A, E, x, lambda)),
+            y === nothing ? nothing : norm(y),
+            y === nothing ? nothing : optimal_value(target, pert, A, x, y; regularization) - regularization*norm(y)^2,
+            minimum(svdvals(compute_M(pert, x)))
+            ]
+        )
+            
+        #TODO: compare accuracy of this formula with the vanilla update y .= y + (1/regularization) * (constraint(target, pert, A, E, x, lambda))
+        # y .= pc .* (constraint(target, pert, A, E, x, lambda) + regularization*y)
+        if verbose
+            @show constraint_violation = norm(constraint(target, pert, A, E, x, lambda))
+        end
+        if !(y===nothing) 
+            y .= y + (1/regularization) * (constraint(target, pert, A, E, x, lambda))
+            if verbose
+                @show norm(y)
+                @show lagrangian = optimal_value(target, pert, A, x, y; regularization) - regularization*norm(y)^2
+            end
+        end
+
+        if adjust_speed
+            inner_its = length(get_record(R))
+            if inner_its < 300
+                regularization = regularization * regularization_damping^2
+            elseif inner_its < 1000
+                regularization = regularization * regularization_damping
+            else
+                regularization = regularization * sqrt(regularization_damping)
+            end
+        else
+            regularization = regularization * regularization_damping
+        end
+        if verbose
+            @show regularization
+        end
+    end    
+    return df
 end
 
 using Optim
@@ -605,172 +719,6 @@ function nearest_unstable_optim(target, pert, A, x0; regularization=0.0,
                     Optim.Options(iterations=1_000))
     @show res
     return res.minimizer
-end
-
-
-
-function nearest_unstable_penalty_method!(target, pert, A, x;
-                        optimizer=Manopt.quasi_Newton!,
-                        gradient=Euclidean_gradient_analytic,
-                        outer_iterations=30, 
-                        starting_regularization=1.,
-                        regularization_damping = 0.75, kwargs...)
-
-    n = length(x)
-    M = Manifolds.Sphere(n-1, eltype(x)<:Complex ? ℂ : ℝ)
-    regularization = starting_regularization
-
-    E, lambda = minimizer(target, pert, A, x; regularization)
-    df = DataFrame()
-    df.outer_iteration_number = [0]
-    df.regularization = [regularization]
-    df.inner_iterations = [0]
-    df.f = [optimal_value(target, pert, A, x)]
-    df.f_reg = [optimal_value(target, pert, A, x; regularization)]
-    df.f_heuristic = [NearestUnstableMatrix.heuristic_zeros(target, pert, A, x)[2]]
-    df.constraint_violation = [norm(constraint(target, pert, A, E, x, lambda))]
-    df.minsvd = [minimum(svdvals(compute_M(pert, x)))]
-    
-    for k = 1:outer_iterations
-        @show k
-        if any(isnan.(x))
-            break
-        end
-
-        E, lambda = minimizer(target, pert, A, x; regularization)
-        # @show original_function_value = optimal_value(target, A, x)
-        # @show heuristic_value = NearestUnstableMatrix.heuristic_zeros(target, A, x)[2]
-        # @show constraint_violation = norm((A+E)*x - x*lambda)
-        # @show regularization
-        # @show k
-
-        f(M, v) = optimal_value(target, pert, A, v; regularization)
-
-        function g(M, v)
-            gr = gradient(target, pert, A, v; regularization)
-            return project(M, v, gr)
-        end
-        try
-            R = optimizer(M, f, g, x; return_state=true, record=[:Iteration], kwargs...)
-            E, lambda = minimizer(target, pert, A, x; regularization)
-            
-            # populate results
-            push!(df, 
-                [k, regularization, length(get_record(R)), 
-                optimal_value(target, pert, A, x),
-                optimal_value(target, pert, A, x; regularization),
-                NearestUnstableMatrix.heuristic_zeros(target, pert, A, x)[2],
-                norm(constraint(target, pert, A, E, x, lambda)),
-                minimum(svdvals(compute_M(pert, x)))
-                ]
-            )
-
-            regularization = regularization * regularization_damping
-        catch e
-            if isa(e, InterruptException)
-                @info "Got interrupt, exiting"
-                break
-            else 
-                rethrow()
-            end
-        end
-    end
-
-    return df
-end
-
-
-function nearest_unstable_augmented_Lagrangian_method!(target, pert, A, x; optimizer=Manopt.quasi_Newton!,
-                                                    gradient=Euclidean_gradient_analytic,
-                                                    outer_iterations=60,
-                                                    starting_regularization=1., 
-                                                    regularization_damping = 0.8,
-                                                    adjust_speed=false,
-                                                    use_Hessian=false,
-                                                    kwargs...)
-    n = length(x)
-    M = Manifolds.Sphere(n-1, eltype(x)<:Complex ? ℂ : ℝ)
-    y = zero(product(A,x))
-    regularization = starting_regularization
-
-    E, lambda = minimizer(target, pert, A, x, y; regularization)
-    df = DataFrame()
-    df.outer_iteration_number = [0]
-    df.regularization = [regularization]
-    df.inner_iterations = [0]
-    df.f = [optimal_value(target, pert, A, x)]
-    df.f_reg = [optimal_value(target, pert, A, x; regularization)]
-    df.f_heuristic = [NearestUnstableMatrix.heuristic_zeros(target, pert, A, x)[2]]
-    df.constraint_violation = [norm(constraint(target, pert, A, E, x, lambda))]
-    df.normy = [norm(y)]
-    df.augmented_Lagrangian = [optimal_value(target, pert, A, x, y; regularization) - regularization*norm(y)^2]
-    df.minsvd = [minimum(svdvals(compute_M(pert, x)))]
-    
-    for k = 1:outer_iterations        
-        if any(isnan.(x))
-            break
-        end
-        @show k        
-        f(M, v) = optimal_value(target, pert, A, v, y; regularization)
-        function grad(M, v)
-            gr = gradient(target, pert, A, v, y; regularization)
-            return project(M, v, gr)
-        end
-        function hess(M, v, w)
-            eh, eg = Euclidean_Hessian_product_and_gradient_analytic(w, target, pert, A, v, y; regularization)
-            return riemannian_Hessian(M, v, eg, eh, w)
-        end
-        try
-            if use_Hessian
-                R = optimizer(M, f, grad, hess, x; return_state=true, record=[:Iteration], kwargs...)
-            else
-                R = optimizer(M, f, grad, x; return_state=true, record=[:Iteration], kwargs...)
-            end
-            E, lambda = minimizer(target, pert, A, x, y; regularization)
-            push!(df,
-                [k, regularization, length(get_record(R)), 
-                optimal_value(target, pert, A, x),
-                optimal_value(target, pert, A, x; regularization),
-                NearestUnstableMatrix.heuristic_zeros(target, pert, A, x)[2],
-                norm(constraint(target, pert, A, E, x, lambda)),
-                norm(y),
-                optimal_value(target, pert, A, x, y; regularization) - regularization*norm(y)^2,
-                minimum(svdvals(compute_M(pert, x)))
-                ]
-            )
-
-            #TODO: compare accuracy of this formula with the vanilla update y .= y + (1/regularization) * (constraint(target, pert, A, E, x, lambda))
-            # y .= pc .* (constraint(target, pert, A, E, x, lambda) + regularization*y)
-            y .= y + (1/regularization) * (constraint(target, pert, A, E, x, lambda))
-            @show norm(y)
-            @show constraint_violation = norm(constraint(target, pert, A, E, x, lambda))
-            @show lagrangian = optimal_value(target, pert, A, x, y; regularization) - regularization*norm(y)^2
-
-            if adjust_speed
-                inner_its = length(get_record(R))
-                if inner_its < 300
-                    regularization = regularization * regularization_damping^2
-                elseif inner_its < 1000
-                    regularization = regularization * regularization_damping
-                else
-                    regularization = regularization * sqrt(regularization_damping)
-                end
-            else
-                regularization = regularization * regularization_damping
-            end
-            @show regularization
-        
-        catch e
-            if isa(e, InterruptException)
-                @info "Got interrupt, exiting"
-                break
-            else 
-                rethrow()
-            end
-        end
-    end
-
-    return df
 end
 
 function nearest_unstable_augmented_Lagrangian_method_optim(target, pert, A, x0;

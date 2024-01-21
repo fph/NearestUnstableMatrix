@@ -224,7 +224,8 @@ end
       pert = toeplitz_perturbation(A)
       target = NonHurwitz()
       x0 = project(Manifolds.Sphere(size(A,1) - 1, ℂ), randn(Complex{eltype(A)}, size(A, 1)))
-      x = nearest_unstable(target, pert, A, x0,
+      x = copy(x0)
+      R = nearest_unstable!(target, pert, A, x,
             stopping_criterion=StopWhenAny(StopAfterIteration(1000), StopWhenGradientNormLess(10^(-6))))
       E, lambda = minimizer(target, pert, A, x)
       @test is_toeplitz(E)
@@ -295,7 +296,8 @@ end
       pert = toeplitz_perturbation(A, -1:3)
       target = NonHurwitz()
       x0 = project(Manifolds.Sphere(size(A,1) - 1, ℂ), randn(Complex{eltype(A)}, size(A, 1)))
-      x = nearest_unstable(target, pert, A, x0, regularization=1e-4,
+      x = copy(x0)
+      nearest_unstable!(target, pert, A, x, regularization=1e-4,
             stopping_criterion=StopWhenAny(StopAfterIteration(1000), StopWhenGradientNormLess(10^(-6))))
       @test optimal_value(target, pert, A, x, regularization=1e-4) ≈ 0.21364254813 # keep checked, we're not 100% sure the method converges to this value for all choices of x0.
 end
@@ -308,8 +310,8 @@ end
       target = Singular()
 
       x0 = project(Manifolds.Sphere(size(A,1) - 1, ℂ), randn(Complex{eltype(A)}, size(A, 1)))
-
-      x = nearest_unstable(target, pert, A, x0,
+      x = copy(x0)
+      nearest_unstable!(target, pert, A, x,
                   stopping_criterion=StopWhenAny(StopAfterIteration(1000), 
                                           StopWhenGradientNormLess(10^(-6))))
       @test optimal_value(target, pert, A, x) ≈ 2.2810193
@@ -324,6 +326,21 @@ end
       g_tol=1e-6, 
       iterations=10_000)
 
+      @test optimal_value(target, pert, A, x) ≈ 2.2810193
+
+      x = copy(x0)
+      NearestUnstableMatrix.nearest_unstable_penalty_method!(target, pert, A, x; verbose=false)
+      @test optimal_value(target, pert, A, x) ≈ 2.2810193
+
+      x = copy(x0)
+      NearestUnstableMatrix.nearest_unstable_penalty_method!(target, pert, A, x, zero(A*x); verbose=false)
+      @test optimal_value(target, pert, A, x) ≈ 2.2810193
+
+      x = copy(x0)
+      NearestUnstableMatrix.nearest_unstable_penalty_method!(target, GeneralPerturbation(pert), A, x, zero(A*x); 
+            optimizer=trust_regions!, (project!)=project!, # we need to project! at each step using trust_regions!
+            use_Hessian=true,
+            verbose=false)
       @test optimal_value(target, pert, A, x) ≈ 2.2810193
 
 end
