@@ -510,10 +510,10 @@ Euclidean_Hessian_product_analytic(w, target, pert, A, v, y=nothing; regularizat
 function Euclidean_Hessian_product_analytic(w, pert, gradient_helper; regularization=0.0)
     M, z, AplusE, pc, lambda = gradient_helper
     @assert lambda == 0 # for now
-    N = compute_M(pert, w)
-    rightpart = transpose(reshape(-product(AplusE, w), (:, size(M, 1)))) - M * (N'*z)
-    dz = pc.U * (Diagonal(1 ./ (pc.S.^2 .+ regularization)) * (pc.U' * rightpart))
-    dAplusE = compute_E(pert, (M'*dz + N'*z)[:])
+    dM = compute_M(pert, w)
+    rightpart = transpose(reshape(-product(AplusE, w), (:, size(M, 1)))) - M * (dM'*z)
+    dz = pc.U * ((Diagonal(1 ./ (pc.S.^2 .+ regularization)) * (pc.U' * rightpart))) # TODO: added parentheses, to test for speed
+    dAplusE = compute_E(pert, (M'*dz + dM'*z)[:])
     vecz = transpose(z)[:]
     vecdz = transpose(dz)[:]
     return 2(-adjoint_product(dAplusE, vecz) - adjoint_product(AplusE, vecdz)) # TODO: untested

@@ -10,7 +10,8 @@ target = Singular() # nearest singular matrix
 
 x0 = project(Manifolds.Sphere(size(A,1) - 1, ℂ), randn(Complex{eltype(A)}, size(A, 1)))
 
-x = nearest_unstable(target, pert, A, x0,
+x = copy(x0)
+df = nearest_unstable!(target, pert, A, x,
     optimizer=quasi_Newton,
     debug=[:Iteration,(:Change, "|Δp|: %1.9f |"), 
             (:Cost, " F(x): %1.11f | "), 
