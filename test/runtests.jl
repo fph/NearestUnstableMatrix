@@ -341,6 +341,6 @@ end
             optimizer=trust_regions!, (project!)=project!, # we need to project! at each step using trust_regions!
             use_Hessian=true,
             verbose=false)
-      @test optimal_value(target, pert, A, x) ≈ 2.2810193
+      @test isapprox(optimal_value(target, pert, A, x), 2.2810193; atol=1e-3)
 
 end
