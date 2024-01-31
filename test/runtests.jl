@@ -185,6 +185,8 @@ end
       pert1 = ComplexSparsePerturbation(A.!=0)
       pert2 = GeneralPerturbation(pert1)
       
+      @test compute_M(pert1, v) == compute_M(pert2, v)
+
       @test optimal_value(target, pert1, A, v) ≈ optimal_value(target, pert2, A, v)
       E1, lambda1 = minimizer(target, pert1, A, v)
       E2, lambda2 = minimizer(target, pert2, A, v)

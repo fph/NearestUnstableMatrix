@@ -233,8 +233,10 @@ Compute the rhs of the constraint M*delta = r.
 function compute_M(pert::GeneralPerturbation, v)
     return reduce(hcat, product(E,v) for E in pert.EE)
 end
-# the following is not the most efficient implementation, but we don't plan to use it in tight loops
-compute_M(pert::ComplexSparsePerturbation, v) = compute_M(GeneralPerturbation(pert), v)
+function compute_M(pert::ComplexSparsePerturbation, v)
+    II, JJ, _ = findnz(pert.P)
+    return sparse(II, 1:length(II), v[JJ])
+end
 
 m_row_transpose(i,d,v) = reduce(vcat, i-j in 1:size(v,3) ? v[:,:,i-j] : zero(v[:,:,1]) for j=0:d)
 m_transpose(d,v) = reduce(hcat, m_row_transpose(i,d,v) for i=1:size(v,3)+d)
@@ -512,7 +514,7 @@ function Euclidean_Hessian_product_analytic(w, pert, gradient_helper; regulariza
     @assert lambda == 0 # for now
     dM = compute_M(pert, w)
     rightpart = transpose(reshape(-product(AplusE, w), (:, size(M, 1)))) - M * (dM'*z)
-    dz = pc.U * ((Diagonal(1 ./ (pc.S.^2 .+ regularization)) * (pc.U' * rightpart))) # TODO: added parentheses, to test for speed
+    dz = pc.U * ((Diagonal(1 ./ (pc.S.^2 .+ regularization)) * (pc.U' * rightpart)))
     dAplusE = compute_E(pert, (M'*dz + dM'*z)[:])
     vecz = transpose(z)[:]
     vecdz = transpose(dz)[:]
@@ -638,7 +640,7 @@ function nearest_unstable_penalty_method!(target, pert, A, x, y=nothing; optimiz
     df.augmented_Lagrangian = [y===nothing ? nothing : optimal_value(target, pert, A, x, y; regularization) - regularization*norm(y)^2]
     df.minsvd = [minimum(svdvals(compute_M(pert, x)))]
 
-    for k = 1:outer_iterations        
+    for k = 1:outer_iterations
         if any(isnan.(x))
             break
         end
