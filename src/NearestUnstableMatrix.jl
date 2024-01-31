@@ -234,7 +234,7 @@ function compute_M(pert::GeneralPerturbation, v)
     return reduce(hcat, product(E,v) for E in pert.EE)
 end
 function compute_M(pert::ComplexSparsePerturbation, v)
-    II, JJ, _ = findnz(pert.P)
+    II, JJ, _ = findnz(sparse(pert.P))
     return sparse(II, 1:length(II), v[JJ])
 end
 
@@ -245,27 +245,30 @@ compute_M(pert::UnstructuredPerturbation, v::AbstractVector) = compute_M(pert, r
 
 inftozero(x) = ifelse(isinf(x), zero(x), x)
 """
-    pc = precompute(pert, v, regularization)
+    U, D, VS = precompute(pert, v; regularization)
 
-Computes "something related" to the inverse of the weighting matrix M.
-
-* For ComplexSparsePerturbation, it is the inverse of the weight vector, 
-m2inv[i] = 1 / (||d_i||^2 + epsilon), where d_i is the vector with d_i=1 iff A[i,j]≠0 and 0 otherwise.
-Moreover, the method adjusts the vector such that 1/0=Inf is replaced by 0, to avoid NaNs in further computations.
-
-* For GeneralPerturbation, it is SVD(M_v)
+Compute an SVD of M, and returns U, D = (S^2+regularization*I)⁻¹, V*S.
+These are quantities that can be quickly computed also for a ComplexSparsePerturbation.
 """
-function precompute(pert::ComplexSparsePerturbation, v, regularization; warn=true)
-    m2inv = 1 ./ (ConstantMatrixProduct(pert.P)(abs2.(v)) .+ regularization)
-    if regularization == 0.
-        m2inv = inftozero.(m2inv)
-        if warn && any(v[m2inv .== 0]  .!= 0)
-            @info "Unfeasible problem, you will probably need to set lambda = 0"
-        end
-    end
-    return m2inv
+function precompute(pert, v; regularization=0.0, M = compute_M(pert, v))
+    pc = svd(M)
+    return pc.U, inv(Diagonal(pc.S)^2 + regularization*I), pc.V* Diagonal(pc.S)
+end
+function precompute(pert::ComplexSparsePerturbation, v; regularization=0.0, M = compute_M(pert, v))
+    D = Diagonal(1 ./ (ConstantMatrixProduct(pert.P)(abs2.(v)) .+ regularization))
+    VS = compute_M(pert, v)'
+    return I, D, VS
 end
 
+"""
+    svdmin(pert, v; M = compute_M(pert, v))
+
+Computes min(svd(M))
+"""
+function svdmin(pert, v; M = compute_M(pert, v))
+    U, D, VS = precompute(pert, v; regularization=0.0, M)
+    return sqrt(minimum(diag(D)))
+end
 
 # TODO: we need to rethink the compute_r interface. This method needs too many parameters
 # and is too tightly coupled with the rest of the computation.
@@ -274,29 +277,19 @@ end
 
 Compute the rhs of the constraint M*delta = r, and returns the pair (r, lambda)
 """
-function compute_r(target::Region, pert::ComplexSparsePerturbation, Av, v, pc; regularization=0.0)
-    nv = v .* pc
-    denom = nv' * v
-    numer = nv' * Av
-    lambda = project(target, numer / denom)
-    return v*lambda - Av, lambda
-end
-
-function compute_r(target::Region, pert::GeneralPerturbation, Av, v, pc; regularization=0.0)
-    Uv = pc.U'*v
-    UAv = pc.U'*Av
-    nv0 = Diagonal(pc.S.^2 .+ regularization) \ Uv
+function compute_r(target::Region, pert, Av, v, pc; regularization=0.0)
+    U, D, VS = pc
+    Uv = U'*v
+    UAv = U'*Av
+    nv0 = D * Uv
     denom = nv0' * Uv
     numer = nv0' * UAv
     lambda = project(target, numer / denom)
     return v*lambda - Av, lambda
     # TODO: we can actually now compute U'*r, which is used in some cases. Can we refactor to return it?
 end
-compute_r(target::PrescribedValue{lambda}, pert::ComplexSparsePerturbation, Av, v, pc; regularization=0.0) where lambda = (v*lambda - Av, convert(eltype(v), lambda))
-compute_r(target::PrescribedValue{lambda}, pert::GeneralPerturbation, Av, v, pc; regularization=0.0) where lambda = (v*lambda - Av, convert(eltype(v), lambda))
-compute_r(target::PrescribedValue{lambda}, pert::UnstructuredPerturbation, Av, v, pc; regularization=0.0) where lambda = (v*lambda - Av, convert(eltype(v), lambda))
-compute_r(target::Singular, pert::ComplexSparsePerturbation, Av, v, pc; regularization=0.0) = (-Av, zero(eltype(v)))
-compute_r(target::Singular, pert::GeneralPerturbation, Av, v, pc; regularization=0.0) = (-Av, zero(eltype(v)))
+compute_r(target::PrescribedValue{lambda}, pert, Av, v, pc; regularization=0.0) where lambda = (v*lambda - Av, convert(eltype(v), lambda))
+compute_r(target::Singular, pert, Av, v, pc; regularization=0.0) = (-Av, zero(eltype(v)))
 function compute_r(target::Singular, pert::UnstructuredPerturbation, Av, v, pc; regularization=0.0)
     return (transpose(-reshape(Av, (pert.m,:))), convert(eltype(v), 0.))
 end
@@ -314,71 +307,30 @@ function compute_E(pert::UnstructuredPerturbation, delta)
     return permutedims(reshape(delta, (pert.n, pert.d+1, pert.m)), (3,1,2))
 end
 
+function compute_E(pert::ComplexSparsePerturbation, delta)
+    II, JJ, _ = findnz(sparse(pert.P))
+    return sparse(II, JJ, delta)
+end
+
 """
     E, lambda = minimizer(target, pert A, v, y; regularization=0.0)
 
 Computes the argmin corresponding to `optimal_value`
 """
-function minimizer(target, pert::ComplexSparsePerturbation, A, v, y=nothing; regularization=0.0)
-    if y===nothing
-        Av = product(A,v)
-    else
-        Av = product(A,v) + regularization * y
-    end
-    pc = precompute(pert, v, regularization; warn=!isa(target, Singular))
-    r, lambda = compute_r(target, pert, Av, v, pc; regularization)
-    t = r .* pc
-    E = t .* (v' .* pert.P)  # the middle .* broadcasts column * row
-    return E, lambda
-end
 function minimizer(target, pert, A, v, y=nothing; regularization=0.0)
     if y===nothing
         Av = product(A,v)
     else
         Av = product(A,v) + regularization * y
     end
-    M = compute_M(pert, v)
-    pc = svd(M)
+    pc = precompute(pert, v; regularization)
     r, lambda = compute_r(target, pert, Av, v, pc; regularization)
-    t = pc.U' * r
+    U, D, VS = pc
+    t = U' * r
     # TODO: tweak compute_r to return U'*r directly
-    delta = pc.V * (Diagonal(pc.S ./ (pc.S.^2 .+ regularization)) * t)
+    delta = VS * (D * t)
     E = compute_E(pert, delta)
     return E, lambda
-end
-
-"""
-    `AplusE, lambda = minimizer_AplusE(target, pert, alpha, v; regularization=0.0)`
-
-Computes the value of A+E
-"""
-function minimizer_AplusE(target, pert::ComplexSparsePerturbation, A, v, y=nothing; regularization=0.0)
-    if y===nothing
-        Av = product(A,v)
-    else
-        Av = product(A,v) + regularization * y
-    end
-    pc = precompute(pert, v, regularization; warn=!isa(target, Singular))
-    r, lambda = compute_r(target, pert, Av, v, pc; regularization)
-    nv = pc .* r
-    t1 = (v*lambda) .* pc
-    vP = v' .* pert.P  # matrix with the nonzero structure of A but elements conj(v_j)
-    E1 = t1 .* vP # broadcasting
-    s2 = pert.P * abs2.(v)
-    nonpert = Av ./ s2
-    projA = A - nonpert .* vP # this projects A on Im(pc.V)^⟂
-    # we subtract this projection before the next addition in the hope of getting
-    # exact zeros where needed, and avoid losing accuracy.
-    minimizer_AplusE = projA + E1 + (Diagonal(regularization ./ (s2 .+ regularization) ./ s2) *Av) .* vP
-    return minimizer_AplusE, lambda, nv
-end
-
-"""
-Alternate formula for the gradient, in the hope of getting better accuracy (but it didn't work in the end)
-"""
-function gradient_alternative(target, pert, A, v, y=nothing; regularization=0.0)
-    AplusE, lambda, nv = minimizer_AplusE(target, pert, A, v, y; regularization)
-    return 2(nv*lambda' - AplusE'*nv)
 end
 
 """
@@ -390,29 +342,17 @@ Computes optval = min_{E ∈ pert} ||E||^2 s.t. (A+E)v = v*λ
 
 If y is given, computes the reduced augmented Lagrangian (augmented Lagrangian) - ε ||y||².
 """
-function optimal_value(target, pert::ComplexSparsePerturbation, A, v, y=nothing; regularization=0.0)
-    if y===nothing
-        Av = product(A,v)
-    else
-        Av = product(A,v) + regularization * y
-    end
-    pc = precompute(pert, v, regularization; warn=!isa(target, Singular))
-    r, lambda = compute_r(target, pert, Av, v, pc; regularization)
-    optval = sum(abs2.(r) .* pc)
-    return optval
-end
-
 function optimal_value(target, pert, A, v, y=nothing; regularization=0.0)
     if y===nothing
         Av = product(A,v)
     else
         Av = product(A,v) + regularization * y
     end
-    M = compute_M(pert, v)
-    pc = svd(M)
+    pc = precompute(pert, v; regularization)
     r, lambda = compute_r(target, pert, Av, v, pc; regularization)
-    t = pc.U' * r
-    return sum((Diagonal(pc.S)^2 + regularization*I)  \ abs2.(t))
+    U, D, VS = pc
+    t = U' * r
+    return sum(D * abs2.(t))
 end
 
 """
@@ -439,28 +379,15 @@ function optimal_vector_entries(target, pert, A, v, y=nothing; regularization=0.
     else
         Av = product(A,v) + regularization * y
     end
-    M = compute_M(pert, v)
-    pc = svd(M)
+    pc = precompute(pert, v; regularization)
     r, lambda = compute_r(target, pert, Av, v, pc; regularization)
-    t = pc.U' * r
-    return hcat(pc.S, Diagonal(pc.S)^2 \ abs2.(t))
+    U, D, VS = pc
+    t = U' * r
+    return hcat(D, D * abs2.(t))
 end
 
 function Euclidean_gradient_zygote(target, pert, A, v, y=nothing; regularization=0.0)
     return first(realgradient_zygote(x -> optimal_value(target, pert, A, x, y; regularization), v))
-end
-
-function Euclidean_gradient_analytic(target, pert::ComplexSparsePerturbation, A, v, y=nothing; regularization=0.0)
-    if y===nothing
-        Av = product(A,v)
-    else
-        Av = product(A,v) + regularization * y
-    end
-    pc = precompute(pert, v, regularization; warn=!isa(target, Singular))
-    r, lambda = compute_r(target, pert, Av, v, pc; regularization)
-    nv = -r .* pc
-    grad = 2(A'*nv - nv*lambda' - (pert.P' * abs2.(nv)) .* v)
-    return grad
 end
 
 """
@@ -475,11 +402,12 @@ function gradient_helper(target, pert, A, v, y=nothing; regularization=0.0)
         Av = product(A, v) + regularization * y
     end
     M = compute_M(pert, v)
-    pc = svd(M)
+    pc = precompute(pert, v; regularization, M)
     r, lambda = compute_r(target, pert, Av, v, pc; regularization)
-    t = pc.U' * r
-    delta = pc.V * (Diagonal(pc.S ./ (pc.S.^2 .+ regularization)) * t)
-    z = pc.U * (Diagonal(1 ./ (pc.S.^2 .+ regularization)) * t)
+    U, D, VS = pc
+    Dt = D * (U' * r)
+    delta = VS * Dt
+    z = U * Dt
     
     AplusE = A + compute_E(pert, delta)
     return M, z, AplusE, pc, lambda
@@ -514,11 +442,12 @@ function Euclidean_Hessian_product_analytic(w, pert, gradient_helper; regulariza
     @assert lambda == 0 # for now
     dM = compute_M(pert, w)
     rightpart = transpose(reshape(-product(AplusE, w), (:, size(M, 1)))) - M * (dM'*z)
-    dz = pc.U * ((Diagonal(1 ./ (pc.S.^2 .+ regularization)) * (pc.U' * rightpart)))
+    U, D, VS = pc
+    dz = U * (D * (U' * rightpart))
     dAplusE = compute_E(pert, (M'*dz + dM'*z)[:])
     vecz = transpose(z)[:]
     vecdz = transpose(dz)[:]
-    return 2(-adjoint_product(dAplusE, vecz) - adjoint_product(AplusE, vecdz)) # TODO: untested
+    return 2(-adjoint_product(dAplusE, vecz) - adjoint_product(AplusE, vecdz))
 end
 
 Euclidean_Hessian_product_and_gradient_analytic(w, target, pert, A, v, y=nothing; regularization = 0.0) =
@@ -638,7 +567,7 @@ function nearest_unstable_penalty_method!(target, pert, A, x, y=nothing; optimiz
     df.constraint_violation = [norm(constraint(target, pert, A, E, x, lambda))]
     df.normy = [y===nothing ? nothing : norm(y)]
     df.augmented_Lagrangian = [y===nothing ? nothing : optimal_value(target, pert, A, x, y; regularization) - regularization*norm(y)^2]
-    df.minsvd = [minimum(svdvals(compute_M(pert, x)))]
+    df.minsvd = [svdmin(pert, x)]
 
     for k = 1:outer_iterations
         if any(isnan.(x))
@@ -670,7 +599,7 @@ function nearest_unstable_penalty_method!(target, pert, A, x, y=nothing; optimiz
             norm(constraint(target, pert, A, E, x, lambda)),
             y === nothing ? nothing : norm(y),
             y === nothing ? nothing : optimal_value(target, pert, A, x, y; regularization) - regularization*norm(y)^2,
-            minimum(svdvals(compute_M(pert, x)))
+            svdmin(pert, x)
             ]
         )
             
@@ -789,7 +718,7 @@ is always solvable.
 """
 function fix_unfeasibility!(target, pert, A, v)
     while(true)
-        pc = precompute(pert, v, 0.; warn=false)
+        pc = precompute(pert, v; regularization=0.0)
         m2inv = pc
         to_zero = (m2inv .== 0) .& (v .!= 0)
         if !any(to_zero)
@@ -812,7 +741,7 @@ This is skipped only if `isa(target, Singular)`. Even if one is interested in ce
 """
 function insert_zero_heuristic!(target, pert::ComplexSparsePerturbation, A, v)
     Av = ConstantMatrixProduct(A)(v)
-    pc = precompute(pert, v, 0.; warn=false)
+    pc = precompute(pert, v; regularization=0.0)
     r, lambda = compute_r(target, pert, Av, v, pc)
     m2 = ConstantMatrixProduct(pert.P)(abs2.(v))
     lstsq_smallness = m2 + abs2.(r)

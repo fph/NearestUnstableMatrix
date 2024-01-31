@@ -15,14 +15,6 @@ using NearestUnstableMatrix: NonSchur, project, precompute
     @test project(RightOf(2.3), 5+5im) == 5 + 5im
 end
 
-@testset "precompute" begin
-    pert = ComplexSparsePerturbation([0 1; 1 0])
-    v = [2; 0]
-    @test isequal(precompute(pert, v, 1.0), [1.0; 0.2])
-    @test isequal(precompute(pert, v, 0.0), [0.0; 0.25])
-    
-end
-
 @testset "Function values and derivatives" begin
 
     # Simple Singular() case
@@ -35,9 +27,6 @@ end
     @test E ≈ [-1.32 -1.76; -3 -4]
     @test lambda == 0
     @test optimal_value(target, pert, A, v) ≈ norm(E)^2
-    AplusE, lambda2, nv = minimizer_AplusE(target, pert, A, v)
-    @test AplusE ≈ A+E
-    @test lambda2 ≈ lambda
     @test NearestUnstableMatrix.Euclidean_gradient_zygote(target, pert, A, v) ≈ 
           NearestUnstableMatrix.Euclidean_gradient_analytic(target, pert, A, v)
     y = randn(ComplexF64, n)
@@ -47,15 +36,15 @@ end
     regularization = 0.5
     E, lambda = minimizer(target, pert, A, v; regularization)
     @test optimal_value(target, pert, A, v; regularization) ≈ norm(E)^2 + norm((A+E)*v-v*lambda)^2/regularization
-    AplusE, lambda2, nv = minimizer_AplusE(target, pert, A, v; regularization)
-    @test AplusE ≈ A+E
-    @test lambda2 ≈ lambda
     @test NearestUnstableMatrix.Euclidean_gradient_zygote(target, pert, A, v; regularization) ≈ 
             NearestUnstableMatrix.Euclidean_gradient_analytic(target, pert, A, v; regularization)
     y = randn(ComplexF64, n)
     @test NearestUnstableMatrix.Euclidean_gradient_zygote(target, pert, A, v, y; regularization) ≈ 
             NearestUnstableMatrix.Euclidean_gradient_analytic(target, pert, A, v, y; regularization)
-    
+
+    U, D, VS = precompute(pert, v; regularization)
+    @test U * VS' ≈ compute_M(pert, v)
+    @test 1 ./ (svdvals(Array(compute_M(pert, v))).^2 .+ regularization) ≈ diag(D)
 
     # Hurwitz
     Random.seed!(0)
@@ -68,9 +57,6 @@ end
     @test (A+E)*v ≈ v*lambda
     @test real(lambda) >= 0
     @test optimal_value(target, pert, A, v) ≈ norm(E)^2
-    AplusE, lambda2, nv = minimizer_AplusE(target, pert, A, v)
-    @test AplusE ≈ A+E
-    @test lambda2 ≈ lambda
     @test NearestUnstableMatrix.Euclidean_gradient_zygote(target, pert, A, v) ≈ 
           NearestUnstableMatrix.Euclidean_gradient_analytic(target, pert, A, v)
     y = randn(ComplexF64, n)
@@ -82,9 +68,6 @@ end
     E, lambda = minimizer(target, pert, A, v; regularization)
     @test real(lambda) >= 0
     @test optimal_value(target, pert, A, v; regularization) ≈ norm(E)^2 + norm((A+E)*v-v*lambda)^2/regularization
-    AplusE, lambda2, nv = minimizer_AplusE(target, pert, A, v; regularization)
-    @test AplusE ≈ A+E
-    @test lambda2 ≈ lambda
     @test NearestUnstableMatrix.Euclidean_gradient_zygote(target, pert, A, v; regularization) ≈ 
           NearestUnstableMatrix.Euclidean_gradient_analytic(target, pert, A, v; regularization)
     y = randn(ComplexF64, n)
@@ -106,20 +89,11 @@ end
     @test abs(real(lambda)) < sqrt(eps(1.))
     @test abs(maximum(real(eigvals(A+E)))) < sqrt(eps(1.))
     @test optimal_value(target, pert, A, v) ≈ norm(E)^2
-    AplusE, lambda2, nv = minimizer_AplusE(target, pert, A, v)
-    @test AplusE ≈ A+E
-    @test lambda2 ≈ lambda
     @test NearestUnstableMatrix.Euclidean_gradient_zygote(target, pert, A, v) ≈ 
           NearestUnstableMatrix.Euclidean_gradient_analytic(target, pert, A, v)
     y = randn(ComplexF64, n)
     @test NearestUnstableMatrix.Euclidean_gradient_zygote(target, pert, A, v, y) ≈ 
           NearestUnstableMatrix.Euclidean_gradient_analytic(target, pert, A, v, y)
-
-    @test NearestUnstableMatrix.Euclidean_gradient_analytic(target, pert, A, v) ≈
-          NearestUnstableMatrix.gradient_alternative(target, pert, A, v)
-
-    @test NearestUnstableMatrix.Euclidean_gradient_analytic(target, pert, A, v, y) ≈
-          NearestUnstableMatrix.gradient_alternative(target, pert, A, v, y)
 
 
     # test Disc
@@ -137,18 +111,12 @@ end
     @test abs(lambda) ≈ 1.
     @test maximum(abs.(eigvals(A+E))) ≈ 1.
     @test optimal_value(target, pert, A, v) ≈ norm(E)^2
-    AplusE, lambda2, nv = minimizer_AplusE(target, pert, A, v)
-    @test AplusE ≈ A+E
-    @test lambda2 ≈ lambda
     @test NearestUnstableMatrix.Euclidean_gradient_zygote(target, pert, A, v) ≈ 
           NearestUnstableMatrix.Euclidean_gradient_analytic(target, pert, A, v)
     y = randn(ComplexF64, n)
     @test NearestUnstableMatrix.Euclidean_gradient_zygote(target, pert, A, v, y) ≈ 
           NearestUnstableMatrix.Euclidean_gradient_analytic(target, pert, A, v, y)
     E, lambda = NearestUnstableMatrix.minimizer(target, pert, A, v, y)
-    AplusE, lambda2, nv = minimizer_AplusE(target, pert, A, v, y)
-    @assert lambda ≈ lambda2
-    @assert A+E ≈ AplusE
 
     # test sparse
 
@@ -165,9 +133,6 @@ end
     @test abs(lambda) ≈ 1.
     @test maximum(abs.(eigvals(Array(A+E)))) ≈ 1.
     @test optimal_value(target, pert, A, v) ≈ norm(E)^2
-    AplusE, lambda2, nv = minimizer_AplusE(target, pert, A, v)
-    @test AplusE ≈ A+E
-    @test lambda2 ≈ lambda
     @test NearestUnstableMatrix.Euclidean_gradient_zygote(target, pert, A, v) ≈ 
           NearestUnstableMatrix.Euclidean_gradient_analytic(target, pert, A, v)
     y = randn(ComplexF64, n)
