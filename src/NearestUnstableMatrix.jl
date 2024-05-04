@@ -544,12 +544,12 @@ an augented Lagrangian term (if `y` is given; `y=zero(A*x)` is a reasonable star
 
 `x` and `y` contain initial values, and are overwritten in-place.
 """
-function nearest_unstable_penalty_method!(target, pert, A, x, y=nothing; optimizer=Manopt.quasi_Newton!,
+function nearest_unstable_penalty_method!(target, pert, A, x, y=nothing; optimizer=Manopt.trust_regions!,
                                                     gradient=Euclidean_gradient_analytic,
-                                                    use_Hessian=false,
+                                                    use_Hessian=true,
                                                     outer_iterations=60,
-                                                    starting_regularization=1., 
-                                                    regularization_damping = 0.8,
+                                                    starting_regularization=eltype(x)(1.), 
+                                                    regularization_damping = eltype(x)(0.8),
                                                     adjust_speed=false,                                                    
                                                     verbose=true,
                                                     kwargs...)
