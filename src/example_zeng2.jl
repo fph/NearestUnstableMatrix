@@ -4,6 +4,8 @@ using Polynomials
 using GenericLinearAlgebra
 using DoubleFloats
 
+RealType = BigFloat
+
 p = Polynomial(1.0);
 q = Polynomial(1.0);
 for j = 1:10
@@ -52,7 +54,7 @@ end
 
 
 A = scaled_Sylvester_matrix(p, q, d)
-A = Double64.(A)
+A = RealType.(A)
 
 x = Polynomial(Array{eltype(p)}([0, 1]))
 z = Polynomial(Array{eltype(p)}([0]))
